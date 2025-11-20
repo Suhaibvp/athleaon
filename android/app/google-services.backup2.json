@@ -1,0 +1,106 @@
+{
+  "project_info": {
+    "project_number": "767461333659",
+    "project_id": "myshoot-8a6cb",
+    "storage_bucket": "myshoot-8a6cb.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:767461333659:android:8b9df549772a359b38c43e",
+        "android_client_info": {
+          "package_name": "com.athleon.shootmetrix"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "767461333659-sf06316jok65u3bru9m3phaqpih0n3ej.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.athleon.shootmetrix",
+            "certificate_hash": "45cdcb5af51e770db188efea8b5e8fd380c4b75a"
+          }
+        },
+        {
+          "client_id": "767461333659-j07amotbcjbg8dbb7hb2cje3mvafddia.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDZjYCyp9BkhgkskovW0XPJSe0QfUoSX_s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "767461333659-j07amotbcjbg8dbb7hb2cje3mvafddia.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "767461333659-828inu2t5mjf0sthjpivdmjutdgh33vp.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.myshoot"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:767461333659:android:9324b7d3566ab35f38c43e",
+        "android_client_info": {
+          "package_name": "com.example.myshoot"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "767461333659-f4f37i7afvlnhttisip5gqakqn94t5pm.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.myshoot",
+            "certificate_hash": "45cdcb5af51e770db188efea8b5e8fd380c4b75a"
+          }
+        },
+        {
+          "client_id": "767461333659-r84e6ntk4263eefoicaqrrbed5s0k8b8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.myshoot",
+            "certificate_hash": "be00d2517cfa8d98a6bdd691ef06245e35e0e077"
+          }
+        },
+        {
+          "client_id": "767461333659-j07amotbcjbg8dbb7hb2cje3mvafddia.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDZjYCyp9BkhgkskovW0XPJSe0QfUoSX_s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "767461333659-j07amotbcjbg8dbb7hb2cje3mvafddia.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "767461333659-828inu2t5mjf0sthjpivdmjutdgh33vp.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.myshoot"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

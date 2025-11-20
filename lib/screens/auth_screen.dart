@@ -41,7 +41,71 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
   
   final List<String> _states = ['California', 'Texas', 'New York', 'Florida', 'Illinois'];
   final List<String> _languages = ['English', 'Spanish', 'French', 'German', 'Hindi'];
+  final List<String> _indianStates = [
+    'Andhra Pradesh',
+    'Arunachal Pradesh',
+    'Assam',
+    'Bihar',
+    'Chhattisgarh',
+    'Goa',
+    'Gujarat',
+    'Haryana',
+    'Himachal Pradesh',
+    'Jharkhand',
+    'Karnataka',
+    'Kerala',
+    'Madhya Pradesh',
+    'Maharashtra',
+    'Manipur',
+    'Meghalaya',
+    'Mizoram',
+    'Nagaland',
+    'Odisha',
+    'Punjab',
+    'Rajasthan',
+    'Sikkim',
+    'Tamil Nadu',
+    'Telangana',
+    'Tripura',
+    'Uttar Pradesh',
+    'Uttarakhand',
+    'West Bengal',
+    'Andaman and Nicobar Islands',
+    'Chandigarh',
+    'Dadra and Nagar Haveli and Daman and Diu',
+    'Delhi',
+    'Jammu and Kashmir',
+    'Ladakh',
+    'Lakshadweep',
+    'Puducherry',
+  ];
 
+  // All Indian Languages
+  final List<String> _indianLanguages = [
+    'Assamese',
+    'Bengali',
+    'Bodo',
+    'Dogri',
+    'English',
+    'Gujarati',
+    'Hindi',
+    'Kannada',
+    'Kashmiri',
+    'Konkani',
+    'Maithili',
+    'Malayalam',
+    'Manipuri (Meitei)',
+    'Marathi',
+    'Nepali',
+    'Odia',
+    'Punjabi',
+    'Sanskrit',
+    'Santali',
+    'Sindhi',
+    'Tamil',
+    'Telugu',
+    'Urdu',
+  ];
   @override
   void initState() {
     super.initState();
@@ -73,7 +137,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
             
             // Logo
             const Text(
-              'ATHLEON',
+              'SHOT METRIX',
               style: TextStyle(
                 fontSize: 32,
                 fontWeight: FontWeight.bold,
@@ -318,7 +382,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                 child: _buildDropdown(
                   label: 'State',
                   value: _selectedState,
-                  items: _states,
+                  items: _indianStates,
                   onChanged: (value) {
                     setState(() {
                       _selectedState = value;
@@ -331,7 +395,7 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                 child: _buildDropdown(
                   label: 'Languages',
                   value: _selectedLanguage,
-                  items: _languages,
+                  items: _indianLanguages,
                   onChanged: (value) {
                     setState(() {
                       _selectedLanguage = value;
@@ -823,15 +887,28 @@ void _navigateToRoleHome() {
   }
 }
 
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFF2A2A2A),
-        behavior: SnackBarBehavior.floating,
+void _showMessage(String message) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        message,
+        style: const TextStyle(
+          color: Colors.white, // ✅ Explicit white text
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
       ),
-    );
-  }
+      backgroundColor: const Color(0xFF2A2A2A),
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 3), // Optional: control how long it shows
+      margin: const EdgeInsets.all(16), // Optional: add margin for floating style
+      shape: RoundedRectangleBorder( // Optional: rounded corners
+        borderRadius: BorderRadius.circular(8),
+      ),
+    ),
+  );
+}
+
   void _showRoleMismatchDialog(String message) {
   showDialog(
     context: context,

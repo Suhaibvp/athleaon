@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/auth_service.dart';
+import '../../widgets/shooting_feedback_icons.dart';
+import '../role_selection_screen.dart';
 
 class SettingsTab extends StatelessWidget {
   const SettingsTab({super.key});
@@ -9,163 +12,216 @@ class SettingsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
     
+    if (currentUser == null) {
+      return const Scaffold(
+        backgroundColor: Color(0xFF1A1A1A),
+        body: Center(
+          child: Text(
+            'No user logged in',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A1A),
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         backgroundColor: const Color(0xFF1A1A1A),
         elevation: 0,
         title: const Text(
-          'Settings',
+          'Profile',
           style: TextStyle(color: Colors.white, fontSize: 20),
         ),
-        actions: [
-          // Logout button
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: () => _showLogoutDialog(context),
-          ),
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.green,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.shield, color: Colors.white, size: 24),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: ShootingFeedbackIcons.buildAppIcon(),
             ),
-          ),
-        ],
+          ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            const SizedBox(height: 20),
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('users')
+            .doc(currentUser.uid)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(
+              child: CircularProgressIndicator(color: Color(0xFFD32F2F)),
+            );
+          }
 
-            // Profile photo
-            Stack(
+          if (snapshot.hasError) {
+            return Center(
+              child: Text(
+                'Error: ${snapshot.error}',
+                style: const TextStyle(color: Colors.white),
+              ),
+            );
+          }
+
+          if (!snapshot.hasData || !snapshot.data!.exists) {
+            return const Center(
+              child: Text(
+                'User data not found',
+                style: TextStyle(color: Colors.white),
+              ),
+            );
+          }
+
+          final userData = snapshot.data!.data() as Map<String, dynamic>;
+
+          return SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
               children: [
+                const SizedBox(height: 20),
+
+                // Profile photo (no badge)
                 CircleAvatar(
                   radius: 60,
                   backgroundColor: Colors.grey[700],
-                  backgroundImage: currentUser?.photoURL != null
-                      ? NetworkImage(currentUser!.photoURL!)
+                  backgroundImage: currentUser.photoURL != null
+                      ? NetworkImage(currentUser.photoURL!)
                       : null,
-                  child: currentUser?.photoURL == null
+                  child: currentUser.photoURL == null
                       ? const Icon(Icons.person, color: Colors.white, size: 60)
                       : null,
                 ),
-                Positioned(
-                  top: 0,
-                  right: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2A2A2A),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: const Color(0xFF1A1A1A), width: 2),
+
+                const SizedBox(height: 32),
+
+                // Profile fields from Firestore
+                _buildProfileField('First Name', userData['firstName'] ?? 'N/A'),
+                const SizedBox(height: 16),
+                _buildProfileField('Last Name', userData['lastName'] ?? 'N/A'),
+                const SizedBox(height: 16),
+                _buildProfileField('Email', userData['email'] ?? 'N/A'),
+                const SizedBox(height: 16),
+                _buildProfileField('Date of Birth', userData['dateOfBirth'] ?? 'N/A'),
+                const SizedBox(height: 16),
+                _buildDropdownField('State', userData['state'] ?? 'N/A'),
+                const SizedBox(height: 16),
+                _buildDropdownField('Language', userData['language'] ?? 'N/A'),
+
+                const SizedBox(height: 32),
+
+                // Edit button
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      // TODO: Enable editing
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD32F2F),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
-                    child: Text(
-                      '0012',
+                    child: const Text(
+                      'Edit',
                       style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: 10,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
                       ),
                     ),
                   ),
                 ),
+
+                const SizedBox(height: 24),
+
+                // Logout button
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => _showLogoutDialog(context),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFD32F2F),
+                      side: const BorderSide(color: Color(0xFFD32F2F), width: 2),
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      'Logout',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFFD32F2F),
+                      ),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 24),
               ],
             ),
+          );
+        },
+      ),
+    );
+  }
 
-            const SizedBox(height: 32),
-
-            // Email display
-            _buildProfileField('Email', currentUser?.email ?? 'No email'),
-            const SizedBox(height: 16),
+void _showLogoutDialog(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: const Color(0xFF2A2A2A),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      title: const Text(
+        'Logout',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      ),
+      content: const Text(
+        'Are you sure you want to logout?',
+        style: TextStyle(color: Colors.white70),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: Text(
+            'Cancel',
+            style: TextStyle(color: Colors.white.withOpacity(0.7)),
+          ),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            Navigator.pop(context); // Close dialog
             
-            // Profile fields
-            _buildProfileField('First Name', 'Hari'),
-            const SizedBox(height: 16),
-            _buildProfileField('Last Name', 'Prasath'),
-            const SizedBox(height: 16),
-            _buildProfileField('Date of birth', '20 June 2000'),
-            const SizedBox(height: 16),
-            _buildDropdownField('State', 'Andhra Pradesh'),
-            const SizedBox(height: 16),
-            _buildDropdownField('Languages', 'English, Telugu'),
-            const SizedBox(height: 16),
-            _buildDropdownField('Events', 'ISSF 10m air riffle'),
-
-            const SizedBox(height: 32),
-
-            // Edit button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  // TODO: Enable editing
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD32F2F),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
+            // Sign out
+            await AuthService().signOut();
+            
+            // ✅ Navigate to role selection page
+            if (context.mounted) {
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const RoleSelectionScreen(),
                 ),
-                child: const Text(
-                  'Edit',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ],
+                (route) => false, // ✅ Clear all previous routes
+              );
+            }
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFD32F2F),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          ),
+          child: const Text(
+            'Logout',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600),
+          ),
         ),
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
 
-  void _showLogoutDialog(BuildContext context) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF2A2A2A),
-        title: const Text(
-          'Logout',
-          style: TextStyle(color: Colors.white),
-        ),
-        content: const Text(
-          'Are you sure you want to logout?',
-          style: TextStyle(color: Colors.white70),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(
-              'Cancel',
-              style: TextStyle(color: Colors.white.withOpacity(0.7)),
-            ),
-          ),
-          TextButton(
-            onPressed: () async {
-              Navigator.pop(context); // Close dialog
-              await AuthService().signOut();
-              // No need to navigate - AuthWrapper will handle it
-            },
-            child: const Text(
-              'Logout',
-              style: TextStyle(color: Color(0xFFD32F2F)),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   Widget _buildProfileField(String label, String value) {
     return Column(

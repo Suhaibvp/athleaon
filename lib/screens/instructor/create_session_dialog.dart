@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/session_service.dart';
 
 class CreateSessionDialog extends StatefulWidget {
@@ -18,39 +19,58 @@ class CreateSessionDialog extends StatefulWidget {
 
 class _CreateSessionDialogState extends State<CreateSessionDialog> {
   final SessionService _sessionService = SessionService();
-  final TextEditingController _sessionNameController = TextEditingController();
   final TextEditingController _shotsController = TextEditingController();
+  final TextEditingController _seriesNameController = TextEditingController(); // NEW
   
   String? _selectedEvent;
   bool _isLoading = false;
 
-  // Only Rifle 10m and Pistol 10m
   final List<String> _events = [
-    'Rifle 10m',
-    'Pistol 10m',
+    'ISSF 10m Air Pistol',
+    'ISSF 10m Air Rifle',
   ];
 
   @override
   void dispose() {
-    _sessionNameController.dispose();
     _shotsController.dispose();
+    _seriesNameController.dispose(); // NEW
     super.dispose();
   }
 
-  Future<void> _createSession() async {
-    // Validate session name
-    if (_sessionNameController.text.trim().isEmpty) {
-      _showMessage('Please enter session name');
-      return;
-    }
+  // Generate next series name if user doesn't provide one
+  Future<String> _generateNextSeriesName() async {
+    try {
+      final counterRef = FirebaseFirestore.instance
+          .collection('counters')
+          .doc('student_${widget.studentId}_series');
 
-    // Validate event selection
+      return await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final counterDoc = await transaction.get(counterRef);
+
+        int nextNumber;
+        if (!counterDoc.exists) {
+          nextNumber = 1;
+          transaction.set(counterRef, {'count': 1});
+        } else {
+          final currentCount = counterDoc.data()?['count'] ?? 0;
+          nextNumber = currentCount + 1;
+          transaction.update(counterRef, {'count': nextNumber});
+        }
+
+        return 'Series$nextNumber';
+      });
+    } catch (e) {
+      print('Error generating series name: $e');
+      return 'Series_${DateTime.now().millisecondsSinceEpoch}';
+    }
+  }
+
+  Future<void> _createSession() async {
     if (_selectedEvent == null) {
       _showMessage('Please select an event');
       return;
     }
 
-    // Validate shots per target
     if (_shotsController.text.isEmpty) {
       _showMessage('Please enter shots per target');
       return;
@@ -65,18 +85,29 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
     setState(() => _isLoading = true);
 
     try {
+      // Use custom series name if provided, otherwise auto-generate
+      String seriesName;
+      if (_seriesNameController.text.trim().isNotEmpty) {
+        seriesName = _seriesNameController.text.trim();
+      } else {
+        seriesName = await _generateNextSeriesName();
+      }
+      
+      print('Creating session with name: $seriesName');
+      
       await _sessionService.createSession(
         studentId: widget.studentId,
         studentName: widget.studentName,
-        sessionName: _sessionNameController.text.trim(),
+        sessionName: seriesName,
         eventName: _selectedEvent!,
         shotsPerTarget: shots,
       );
 
       if (mounted) {
-        Navigator.pop(context, true); // Return true to indicate success
+        Navigator.pop(context, true);
       }
     } catch (e) {
+      print('Error creating session: $e');
       if (mounted) {
         _showMessage('Error creating session: $e');
       }
@@ -106,7 +137,7 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    'Session Creation',
+                    'Series Creation',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 20,
@@ -124,9 +155,9 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
 
               const SizedBox(height: 24),
 
-              // Session Name Field (NEW)
+              // Series Name Input Field (NEW)
               const Text(
-                'Session Name',
+                'Series Name (Optional)',
                 style: TextStyle(
                   color: Colors.white,
                   fontSize: 14,
@@ -135,11 +166,11 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
               ),
               const SizedBox(height: 8),
               TextField(
-                controller: _sessionNameController,
+                controller: _seriesNameController,
                 style: const TextStyle(color: Colors.white),
                 decoration: InputDecoration(
-                  hintText: 'Enter session name',
-                  hintStyle: const TextStyle(color: Colors.grey),
+                  hintText: 'Enter custom series name or leave blank for auto-name',
+                  hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
                   filled: true,
                   fillColor: const Color(0xFF1A1A1A),
                   border: OutlineInputBorder(
@@ -159,7 +190,7 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
 
               const SizedBox(height: 20),
 
-              // Event Name Dropdown (UPDATED - only 2 options)
+              // Event Name Dropdown
               const Text(
                 'Event Name',
                 style: TextStyle(
@@ -204,7 +235,7 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
 
               const SizedBox(height: 20),
 
-              // Shots per Target (KEPT as number)
+              // Shots per Target
               const Text(
                 'Shots per Target',
                 style: TextStyle(

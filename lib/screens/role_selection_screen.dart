@@ -17,7 +17,7 @@ class RoleSelectionScreen extends StatelessWidget {
               
               // Logo at top
               Text(
-                'SHOTMATRIX',
+                'SHOT METRIX',
                 style: TextStyle(
                   fontSize: 36,
                   fontWeight: FontWeight.bold,

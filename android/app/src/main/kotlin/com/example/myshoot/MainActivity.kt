@@ -1,4 +1,5 @@
-package com.example.myshoot
+package com.athleon.shotmetrix
+
 
 import io.flutter.embedding.android.FlutterActivity
 

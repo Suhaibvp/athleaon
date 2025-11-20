@@ -96,27 +96,47 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
+      backgroundColor: const Color(0xFF2C2C2C), // Dark background like your design
       body: Center(
         child: FadeTransition(
           opacity: _fadeAnimation,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              // Logo text
-              Text(
-                'ATHLEON',
-                style: TextStyle(
-                  fontSize: 48,
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFFD32F2F),
-                  letterSpacing: 8,
-                  shadows: [
-                    Shadow(
-                      color: const Color(0xFFD32F2F).withOpacity(0.5),
-                      blurRadius: 20,
+              // Logo Image
+              Image.asset(
+                'assets/images/logo.png', // Adjust path if needed
+                width: 140,
+                height: 140,
+                fit: BoxFit.contain,
+                errorBuilder: (context, error, stackTrace) {
+                  // Fallback if image not found
+                  return Container(
+                    width: 140,
+                    height: 140,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD32F2F),
+                      shape: BoxShape.circle,
                     ),
-                  ],
+                    child: const Icon(
+                      Icons.shield,
+                      size: 80,
+                      color: Colors.white,
+                    ),
+                  );
+                },
+              ),
+              
+              const SizedBox(height: 24),
+              
+              // SHOT METRIX Text
+              const Text(
+                'SHOT METRIX',
+                style: TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFD32F2F),
+                  letterSpacing: 3.0,
                 ),
               ),
             ],

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/connection_service.dart';
 import 'student_description_screen.dart';
-
+import '../../widgets/shooting_feedback_icons.dart';
 class StudentsTab extends StatefulWidget {
   const StudentsTab({super.key});
 
@@ -60,26 +60,19 @@ class _StudentsTabState extends State<StudentsTab> {
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A1A),
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         backgroundColor: const Color(0xFF1A1A1A),
         elevation: 0,
         title: const Text(
           'Students',
           style: TextStyle(color: Colors.white, fontSize: 20),
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 16),
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.green,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: const Icon(Icons.shield, color: Colors.white, size: 24),
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: ShootingFeedbackIcons.buildAppIcon(),
             ),
-          ),
-        ],
+          ],
       ),
       body: Column(
         children: [
