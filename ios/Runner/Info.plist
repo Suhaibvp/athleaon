@@ -56,6 +56,18 @@
 				<!-- Replace with your REVERSED_CLIENT_ID from GoogleService-Info.plist -->
 				<string>com.googleusercontent.apps.767461333659-828inu2t5mjf0sthjpivdmjutdgh33vp</string>
 			</array>
+			<key>NSPhotoLibraryUsageDescription</key>
+			<string>This app needs access to your photo library so users can select images to attach for reference.</string>
+
+			<key>NSCameraUsageDescription</key>
+			<string>This app needs access to the camera so users can take pictures to attach for reference.</string>
+
+			<key>NSDocumentsFolderUsageDescription</key>
+			<string>This app needs access to your files so you can attach documents (PDF, TXT).</string>
+
+			<key>NSMicrophoneUsageDescription</key>
+			<string>This app needs microphone access for audio features.</string>
+
 		</dict>
 	</array>
 
