@@ -5,6 +5,8 @@ import 'complete_profile_screen.dart';
 import 'student/student_dashboard.dart';
 import 'instructor/instructor_dashboard.dart';
 import 'email_verification_screen.dart';
+import '../services/facebook_auth_service.dart';
+
 class AuthScreen extends StatefulWidget {
   final String role; // Student, Instructor, Guest, or DTM Owner
   
@@ -19,7 +21,8 @@ class AuthScreen extends StatefulWidget {
 
 class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  
+  final FacebookAuthService _facebookAuthService = FacebookAuthService();
+
   // Auth Service
   final AuthService _authService = AuthService();
   bool _isLoading = false;
@@ -312,8 +315,8 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
               _buildSocialButton(Icons.g_mobiledata, 'Google'),
               const SizedBox(width: 16),
               _buildSocialButton(Icons.facebook, 'Facebook'),
-              const SizedBox(width: 16),
-              _buildSocialButton(Icons.apple, 'Apple'),
+              // const SizedBox(width: 16),
+              // _buildSocialButton(Icons.apple, 'Apple'),
             ],
           ),
         ],
@@ -508,8 +511,8 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
               _buildSocialButton(Icons.g_mobiledata, 'Google'),
               const SizedBox(width: 16),
               _buildSocialButton(Icons.facebook, 'Facebook'),
-              const SizedBox(width: 16),
-              _buildSocialButton(Icons.apple, 'Apple'),
+              // const SizedBox(width: 16),
+              // _buildSocialButton(Icons.apple, 'Apple'),
             ],
           ),
           
@@ -641,10 +644,12 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
             ? null
             : () {
                 if (platform == 'Google') {
-                  _handleGoogleSignIn();
-                } else {
-                  _showMessage('$platform login coming soon');
-                }
+                _handleGoogleSignIn();
+              } else if (platform == 'Facebook') {
+                _handleFacebookSignIn();        // ✅ now wired
+              } else {
+                _showMessage('$platform login coming soon');
+              }
               },
       ),
     );
@@ -791,6 +796,53 @@ void _handleSignup() async {
   }
 }
 
+
+Future<void> _handleFacebookSignIn() async {
+  print('🟥 UI: _handleFacebookSignIn tapped, role=${widget.role}');
+  setState(() => _isLoading = true);
+
+  try {
+    final userCredential = await _facebookAuthService.signInWithFacebook(
+      role: widget.role,
+    );
+
+    print('🟥 UI: _handleFacebookSignIn userCredential=$userCredential');
+
+    if (userCredential != null && mounted) {
+      final uid = userCredential.user!.uid;
+      print('🟥 UI: Checking profile completeness for uid=$uid');
+      final isComplete = await _authService.isProfileComplete(uid);
+      print('🟥 UI: isProfileComplete=$isComplete');
+
+      if (isComplete) {
+        _showMessage('Facebook sign in successful!');
+        _navigateToRoleHome();
+      } else {
+        _showMessage('Please complete your profile');
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CompleteProfileScreen(role: widget.role),
+          ),
+        );
+      }
+    }
+  } catch (e, st) {
+    print('❌ UI: _handleFacebookSignIn ERROR: $e');
+    print('❌ UI STACKTRACE:\n$st');
+
+    if (!mounted) return;
+    if (e.toString().contains('already registered as')) {
+      _showRoleMismatchDialog(e.toString());
+    } else {
+      _showMessage(e.toString());
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isLoading = false);
+    }
+  }
+}
 
 
 

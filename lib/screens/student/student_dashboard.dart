@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'home_tab.dart';
-import 'logs_tab.dart';
+import 'session_tab.dart';
 import 'coaches_tab.dart';
 import 'profile_tab.dart';
 
@@ -16,7 +16,7 @@ class _StudentDashboardState extends State<StudentDashboard> {
 
   final List<Widget> _tabs = [
     const HomeTab(),
-    const LogsTab(),
+    const SessionTab(),
     const CoachesTab(),
     const ProfileTab(),
   ];
@@ -41,23 +41,33 @@ class _StudentDashboardState extends State<StudentDashboard> {
         showUnselectedLabels: true,
         selectedFontSize: 12,
         unselectedFontSize: 12,
-        items: const [
-          BottomNavigationBarItem(
+        items: [
+          const BottomNavigationBarItem(
             icon: Icon(Icons.home_outlined),
             activeIcon: Icon(Icons.home),
             label: 'Home',
           ),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.search_outlined),
-            activeIcon: Icon(Icons.search),
-            label: 'Logs',
-          ),
-          BottomNavigationBarItem(
+BottomNavigationBarItem(
+      icon: Image.asset(
+        'assets/icons/feedback/random_shoot.png',
+        width: 24,
+        height: 24,
+        color: Colors.white.withOpacity(0.5),
+      ),
+      activeIcon: Image.asset(
+        'assets/icons/feedback/random_shoot.png',
+        width: 24,
+        height: 24,
+        color: const Color(0xFFD32F2F),
+      ),
+      label: 'Sessions',
+    ),
+          const BottomNavigationBarItem(
             icon: Icon(Icons.people_outline),
             activeIcon: Icon(Icons.people),
             label: 'Coaches',
           ),
-          BottomNavigationBarItem(
+          const BottomNavigationBarItem(
             icon: Icon(Icons.settings_outlined),
             activeIcon: Icon(Icons.settings),
             label: 'Settings',

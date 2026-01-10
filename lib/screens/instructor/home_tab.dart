@@ -203,6 +203,7 @@ class _HomeTabState extends State<HomeTab> with SingleTickerProviderStateMixin {
                   OutlinedButton(
                     onPressed: () async {
                       final result = await showDialog<bool>(
+                        barrierDismissible: false,
                         context: context,
                         builder: (context) => const CreateStudentDialog(),
                       );
@@ -355,90 +356,103 @@ if (createdBy == 'coach') {
     },
   );
 }
- else {
-    // CREATED BY USER TAB - Show connected students (real auth users)
-    final connectionService = ConnectionService();
-    
-    return StreamBuilder<QuerySnapshot>(
-      stream: connectionService.getConnectedStudents(currentCoachId),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Center(
-            child: CircularProgressIndicator(color: Color(0xFFD32F2F)),
-          );
-        }
-
-        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-          return Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  Icons.people_outline,
-                  size: 64,
-                  color: Colors.white.withOpacity(0.3),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'No connected students',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.7),
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: widget.onNavigateToStudents,
-                  child: const Text(
-                    'Connect with students',
-                    style: TextStyle(color: Color(0xFFD32F2F)),
-                  ),
-                ),
-              ],
-            ),
-          );
-        }
-
-        return ListView.builder(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          itemCount: snapshot.data!.docs.length,
-          itemBuilder: (context, index) {
-            final connection = snapshot.data!.docs[index];
-            final studentId = connection['studentId'];
-
-return FutureBuilder<Map<String, dynamic>?>(
-  future: connectionService.getStudentData(studentId),
-  builder: (context, studentSnapshot) {
-    if (!studentSnapshot.hasData) {
-      return const SizedBox();
-    }
-
-    final studentData = studentSnapshot.data!;
-    final firstName = studentData['firstName'] ?? '';
-    final lastName = studentData['lastName'] ?? '';
-    final fullName = '$firstName $lastName'.trim();
-    
-    // ✅ Get lastAccessed from connection document
-    final connectionData = connection.data() as Map<String, dynamic>;
-    final lastAccessed = connectionData['lastAccessed'] as Timestamp?;
-
-    return _buildStudentCard(
-      uid: studentId,
-      name: fullName,
-      email: studentData['email'] ?? '',
-      photoUrl: studentData['photoUrl'],
-      lastUpdated: _formatTimestamp(lastAccessed), // ✅ Use connection's lastAccessed
-      isCoachCreated: false,
-      connectionId: connection.id, // ✅ Pass connection document ID
-    );
-  },
-);
-
-          },
+else {
+  // CREATED BY USER TAB - Show connected students (real auth users)
+  final connectionService = ConnectionService();
+  
+  return StreamBuilder<QuerySnapshot>(
+    stream: connectionService.getConnectedStudents(currentCoachId),
+    builder: (context, snapshot) {
+      if (snapshot.connectionState == ConnectionState.waiting) {
+        return const Center(
+          child: CircularProgressIndicator(color: Color(0xFFD32F2F)),
         );
-      },
-    );
-  }
+      }
+
+      if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+        return Center(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                Icons.people_outline,
+                size: 64,
+                color: Colors.white.withOpacity(0.3),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No connected students',
+                style: TextStyle(
+                  color: Colors.white.withOpacity(0.7),
+                  fontSize: 16,
+                ),
+              ),
+              const SizedBox(height: 8),
+              TextButton(
+                onPressed: widget.onNavigateToStudents,
+                child: const Text(
+                  'Connect with students',
+                  style: TextStyle(color: Color(0xFFD32F2F)),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+
+      // ✅ REMOVE DUPLICATES: Use Set to track unique studentIds
+      final connections = snapshot.data!.docs;
+      final seenStudentIds = <String>{};
+      final uniqueConnections = connections.where((doc) {
+        final studentId = doc['studentId'] as String?;
+        if (studentId == null || seenStudentIds.contains(studentId)) {
+          return false; // Skip duplicate
+        }
+        seenStudentIds.add(studentId);
+        return true;
+      }).toList();
+
+      print('🔍 Total connections: ${connections.length}, Unique: ${uniqueConnections.length}');
+
+      return ListView.builder(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: uniqueConnections.length,
+        itemBuilder: (context, index) {
+          final connection = uniqueConnections[index];
+          final studentId = connection['studentId'] as String;
+
+          return FutureBuilder<Map<String, dynamic>?>(
+            future: connectionService.getUserProfile(studentId),
+            builder: (context, studentSnapshot) {
+              if (!studentSnapshot.hasData) {
+                return const SizedBox();
+              }
+
+              final studentData = studentSnapshot.data!;
+              final firstName = studentData['firstName'] ?? '';
+              final lastName = studentData['lastName'] ?? '';
+              final fullName = '$firstName $lastName'.trim();
+              
+              final connectionData = connection.data() as Map<String, dynamic>;
+              final lastAccessed = connectionData['lastAccessed'] as Timestamp?;
+
+              return _buildStudentCard(
+                uid: studentId,
+                name: fullName,
+                email: studentData['email'] ?? '',
+                photoUrl: studentData['photoUrl'],
+                lastUpdated: _formatTimestamp(lastAccessed),
+                isCoachCreated: false,
+                connectionId: connection.id,
+              );
+            },
+          );
+        },
+      );
+    },
+  );
+}
+
 }
 
 
@@ -555,6 +569,7 @@ Widget _buildStudentCard({
                     if (studentDoc.exists && mounted) {
                       final data = studentDoc.data()!;
                       final result = await showDialog<bool>(
+                        barrierDismissible: false,
                         context: context,
                         builder: (context) => CreateStudentDialog(
                           studentId: uid,

@@ -2,7 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/photo_data.dart';
 import '../models/attached_file.dart';
-
+import 'session_sharing_service.dart';
 class SessionService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -53,32 +53,47 @@ Future<void> saveSessionShots({
   required double totalScore,
   required Duration totalTime,
   String? notes, // Keep for backwards compatibility
-  List<Map<String, dynamic>>? notesList, // ✅ NEW: List of notes with timestamps
+  List<Map<String, dynamic>>? notesList, // List of notes with timestamps
   List<Map<String, dynamic>>? shotGroups,
   List<Map<String, dynamic>>? missedShots,
+  List<Map<String, dynamic>>? sightingShots, // NEW: Optional sighting shots
+  double? sightingTotalScore, // NEW: Optional sighting score
 }) async {
   try {
-    await FirebaseFirestore.instance
-        .collection('training_sessions')
-        .doc(sessionId)
-        .set({
+    final data = {
       'shots': shots,
       'totalScore': totalScore,
       'totalTime': totalTime.inMilliseconds,
       'notes': notes ?? '', // Latest note (backwards compatibility)
-      'notesList': notesList ?? [], // ✅ NEW: All notes with timestamps
+      'notesList': notesList ?? [], // All notes with timestamps
       'shotGroups': shotGroups ?? [],
       'missedShots': missedShots ?? [],
       'hasShots': true,
       'timestamp': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    };
+
+    // NEW: Add sighting data only if present
+    if (sightingShots != null && sightingShots.isNotEmpty) {
+      data['sightingShots'] = sightingShots;
+      data['hasSightingShots'] = true; // Flag to check if sighting data exists
+    }
     
-    print('✅ Saved session with ${notesList?.length ?? 0} notes');
+    if (sightingTotalScore != null) {
+      data['sightingTotalScore'] = sightingTotalScore;
+    }
+
+    await FirebaseFirestore.instance
+        .collection('training_sessions')
+        .doc(sessionId)
+        .set(data, SetOptions(merge: true));
+    
+    print('✅ Saved session with ${notesList?.length ?? 0} notes and ${sightingShots?.length ?? 0} sighting shots');
   } catch (e) {
     print('❌ Error saving shots: $e');
     rethrow;
   }
 }
+
 
   // Check if session has shots
   Future<bool> hasShots(String sessionId) async {
@@ -234,5 +249,60 @@ Future<List<AttachedFile>> getSessionFiles(String sessionId) async {
     return [];
   }
 }
+/// Auto-share with student after session completion
+Future<void> autoShareWithStudent(String sessionId, String studentId) async {
+  print('🔍 AUTO-SHARE START: sessionId=$sessionId, studentId=$studentId');
+  
+  try {
+    final sessionData = await getSessionData(sessionId);
+    print('🔍 Session data: ${sessionData != null ? 'EXISTS' : 'NULL'}');
+    if (sessionData == null) {
+      print('❌ Session data is NULL - cannot share');
+      return;
+    }
+    
+    print('🔍 hasShots check: ${sessionData['hasShots']}');
+    if (sessionData['hasShots'] != true) {
+      print('❌ hasShots is NOT true (${sessionData['hasShots']}) - skipping share');
+      return;  // ← THIS IS LIKELY THE ISSUE
+    }
+
+    final photos = await getSessionImages(sessionId);
+    print('🔍 Photos count: ${photos.length}');
+    
+    final coachId = FirebaseAuth.instance.currentUser!.uid;
+    print('🔍 Coach ID: $coachId');
+
+    print('🔄 Calling shareCoachSessionWithStudent...');
+    await SessionSharingService().shareCoachSessionWithStudent(
+      originalSessionId: sessionId,
+      studentId: studentId,
+      coachId: coachId,
+      photos: photos,
+    );
+
+    print('✅ Auto-shared session with student');
+  } catch (e) {
+    print('❌ AUTO-SHARE FAILED: $e');
+    print('❌ Stack trace: ${StackTrace.current}');
+  }
+}
+
+/// Get all sessions for current user (including downloaded coach sessions)
+Future<QuerySnapshot> getAllSessions() async {
+  final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+  if (currentUserId == null) return await FirebaseFirestore.instance.collection('training_sessions').limit(0).get();
+  
+  return await FirebaseFirestore.instance
+      .collection('training_sessions')
+      .where('studentId', isEqualTo: currentUserId)
+      .get();
+}
+
+/// Update session metadata (for coach sessions)
+Future<void> updateSessionMetadata(String sessionId, Map<String, dynamic> metadata) async {
+  await _firestore.collection('training_sessions').doc(sessionId).update(metadata);
+}
+
 
 }

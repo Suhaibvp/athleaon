@@ -34,7 +34,7 @@ class _StudentDescriptionScreenState extends State<StudentDescriptionScreen> {
   }
 
   Future<void> _checkConnection() async {
-    final connected = await _connectionService.isConnected(widget.studentId);
+    final connected = await _connectionService.isConnectedWithStudent(widget.studentId);
     setState(() {
       _isConnected = connected;
       _isLoading = false;

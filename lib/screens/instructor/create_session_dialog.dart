@@ -20,20 +20,23 @@ class CreateSessionDialog extends StatefulWidget {
 class _CreateSessionDialogState extends State<CreateSessionDialog> {
   final SessionService _sessionService = SessionService();
   final TextEditingController _shotsController = TextEditingController();
-  final TextEditingController _seriesNameController = TextEditingController(); // NEW
+  final TextEditingController _seriesNameController = TextEditingController();
   
   String? _selectedEvent;
   bool _isLoading = false;
 
+  // ✅ UPDATED: Expanded event list with new placeholder events
   final List<String> _events = [
     'ISSF 10m Air Pistol',
     'ISSF 10m Air Rifle',
+    '25m Sports Pistol',
+    '25m Rapid Fire',
+    '50m Rifle 3P',
   ];
-
   @override
   void dispose() {
     _shotsController.dispose();
-    _seriesNameController.dispose(); // NEW
+    _seriesNameController.dispose();
     super.dispose();
   }
 
@@ -155,7 +158,7 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
 
               const SizedBox(height: 24),
 
-              // Series Name Input Field (NEW)
+              // Series Name Input Field
               const Text(
                 'Series Name (Optional)',
                 style: TextStyle(
@@ -218,6 +221,7 @@ class _CreateSessionDialogState extends State<CreateSessionDialog> {
                     dropdownColor: const Color(0xFF2A2A2A),
                     icon: const Icon(Icons.keyboard_arrow_down, color: Colors.white),
                     style: const TextStyle(color: Colors.white, fontSize: 14),
+                    // ✅ UPDATED: Now shows all 6 events
                     items: _events.map((event) {
                       return DropdownMenuItem(
                         value: event,

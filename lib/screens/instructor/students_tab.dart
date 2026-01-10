@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../services/connection_service.dart';
 import 'student_description_screen.dart';
 import '../../widgets/shooting_feedback_icons.dart';
+
 class StudentsTab extends StatefulWidget {
   const StudentsTab({super.key});
 
@@ -15,9 +16,6 @@ class _StudentsTabState extends State<StudentsTab> {
   final ConnectionService _connectionService = ConnectionService();
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
-  
-  // Track which students are being connected
-  final Set<String> _connectingStudents = {};
 
   @override
   void dispose() {
@@ -25,38 +23,55 @@ class _StudentsTabState extends State<StudentsTab> {
     super.dispose();
   }
 
-  Future<void> _handleConnect(String studentId, String studentName) async {
-    // Don't allow multiple simultaneous connections
-    if (_connectingStudents.contains(studentId)) return;
-    
-    setState(() {
-      _connectingStudents.add(studentId);
-    });
-
+  // Handle accepting a student's request (coach side)
+  Future<void> _acceptRequest(String connectionDocId, String studentName) async {
     try {
-      final isConnected = await _connectionService.isConnected(studentId);
-      
-      if (isConnected) {
-        await _connectionService.disconnectStudent(studentId);
-        _showMessage('Disconnected from $studentName');
-      } else {
-        await _connectionService.connectWithStudent(studentId);
-        _showMessage('Connected with $studentName');
-      }
-      
-      // Trigger rebuild
-      setState(() {});
+      await _connectionService.acceptStudentRequest(connectionDocId);
+      _showMessage('Connected with $studentName');
     } catch (e) {
       _showMessage(e.toString());
-    } finally {
-      setState(() {
-        _connectingStudents.remove(studentId);
-      });
     }
   }
 
+  // Handle denying a student's request (coach side)
+  Future<void> _denyRequest(String connectionDocId, String studentName) async {
+    try {
+      await _connectionService.denyStudentRequest(connectionDocId);
+      _showMessage('Request denied for $studentName');
+    } catch (e) {
+      _showMessage(e.toString());
+    }
+  }
+
+void _showMessage(String message, {bool isError = false}) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        message,
+        style: const TextStyle(
+          color: Colors.white,  // ✅ White text for readability
+          fontSize: 14,
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+      backgroundColor: isError 
+          ? Colors.red.shade700      // ✅ Red for errors
+          : Colors.green.shade700,   // ✅ Green for success
+      behavior: SnackBarBehavior.floating,
+      duration: const Duration(seconds: 3),
+      margin: const EdgeInsets.all(16),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+    ),
+  );
+}
+
+
   @override
   Widget build(BuildContext context) {
+    final currentCoachId = _connectionService.currentUserId;
+
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A1A),
       appBar: AppBar(
@@ -67,12 +82,12 @@ class _StudentsTabState extends State<StudentsTab> {
           'Students',
           style: TextStyle(color: Colors.white, fontSize: 20),
         ),
-          actions: [
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: ShootingFeedbackIcons.buildAppIcon(),
-            ),
-          ],
+        actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 16),
+            child: ShootingFeedbackIcons.buildAppIcon(),
+          ),
+        ],
       ),
       body: Column(
         children: [
@@ -115,7 +130,81 @@ class _StudentsTabState extends State<StudentsTab> {
             ),
           ),
 
-          // Student list from Firestore
+          // Pending Student Requests Section (coach can approve/deny)
+          StreamBuilder<QuerySnapshot>(
+            stream: _connectionService.getPendingRequestsForCoach(currentCoachId),
+            builder: (context, reqSnapshot) {
+              if (!reqSnapshot.hasData || reqSnapshot.data!.docs.isEmpty) {
+                return const SizedBox.shrink();
+              }
+              final requests = reqSnapshot.data!.docs;
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: Card(
+                  color: Colors.yellow[700]!.withOpacity(0.13),
+                  elevation: 1,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: ExpansionTile(
+                    leading: Stack(
+                      alignment: Alignment.topRight,
+                      children: [
+                        Icon(Icons.person_add_alt, color: Colors.orange[800]),
+                        if (requests.length > 0)
+                          CircleAvatar(
+                            backgroundColor: Colors.orange,
+                            radius: 8,
+                            child: Text(
+                              requests.length.toString(),
+                              style: const TextStyle(color: Colors.white, fontSize: 12),
+                            ),
+                          ),
+                      ],
+                    ),
+                    title: const Text('Pending Requests', style: TextStyle(color: Colors.white)),
+                    children: requests.map((doc) {
+                      final request = doc.data() as Map<String, dynamic>;
+                      final studentId = request['studentId'] ?? '';
+                      return FutureBuilder<Map<String, dynamic>?>(
+                        future: _connectionService.getUserProfile(studentId),
+                        builder: (context, userSnapshot) {
+                          final userData = userSnapshot.data;
+                          final firstName = userData?['firstName'] ?? 'Unknown';
+                          final lastName = userData?['lastName'] ?? '';
+                          final fullName = ('$firstName $lastName').trim();
+                          return ListTile(
+                            leading: const CircleAvatar(child: Icon(Icons.person)),
+                            title: Text(fullName, style: const TextStyle(color: Colors.white)),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                ElevatedButton(
+                                  onPressed: () =>
+                                      _acceptRequest(doc.id, fullName),
+                                  style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.green),
+                                  child: const Text('Accept'),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton(
+                                  onPressed: () =>
+                                      _denyRequest(doc.id, fullName),
+                                  style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.red),
+                                  child: const Text('Deny'),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    }).toList(),
+                  ),
+                ),
+              );
+            },
+          ),
+
+          // List students and show Connect/Connected button as coach
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: _firestore
@@ -171,7 +260,6 @@ class _StudentsTabState extends State<StudentsTab> {
                   final lastName = (data['lastName'] ?? '').toString().toLowerCase();
                   final email = (data['email'] ?? '').toString().toLowerCase();
                   final fullName = '$firstName $lastName';
-
                   return fullName.contains(_searchQuery) ||
                       email.contains(_searchQuery) ||
                       firstName.contains(_searchQuery) ||
@@ -196,7 +284,6 @@ class _StudentsTabState extends State<StudentsTab> {
                   itemBuilder: (context, index) {
                     final studentData =
                         filteredStudents[index].data() as Map<String, dynamic>;
-
                     return _buildStudentCard(
                       uid: studentData['uid'] ?? '',
                       firstName: studentData['firstName'] ?? 'Unknown',
@@ -226,7 +313,6 @@ class _StudentsTabState extends State<StudentsTab> {
 
     return GestureDetector(
       onTap: () {
-        // Navigate to student description screen
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -264,9 +350,7 @@ class _StudentsTabState extends State<StudentsTab> {
                     )
                   : null,
             ),
-
             const SizedBox(width: 16),
-
             // Student info
             Expanded(
               child: Column(
@@ -291,82 +375,70 @@ class _StudentsTabState extends State<StudentsTab> {
                 ],
               ),
             ),
-
-            // Shield icon and Connect button
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.shield,
-                    color: Colors.blue,
-                    size: 20,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                
-                // Connect button with FutureBuilder to check connection status
-                FutureBuilder<bool>(
-                  future: _connectionService.isConnected(uid),
-                  builder: (context, snapshot) {
-                    final isConnected = snapshot.data ?? false;
-                    final isConnecting = _connectingStudents.contains(uid);
-
-                    return GestureDetector(
-                      onTap: () {
-                        // Prevent event from bubbling to parent GestureDetector
-                        _handleConnect(uid, fullName);
-                      },
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isConnected
-                              ? Colors.grey[700]
-                              : const Color(0xFFD32F2F),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: isConnecting
-                            ? const SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2,
-                                ),
-                              )
-                            : Text(
-                                isConnected ? 'Disconnect' : 'Connect',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
+            // Shield icon
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.blue.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(
+                Icons.shield,
+                color: Colors.blue,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Connect/Connected button (instant, coach->student)
+            FutureBuilder<bool>(
+              future: _connectionService.isConnectedWithStudent(uid),
+              builder: (context, snapshot) {
+                final isConnected = snapshot.data ?? false;
+                if (isConnected) {
+                  return Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: Colors.green.withOpacity(0.7),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: const Text(
+                      'Connected',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
                       ),
-                    );
-                  },
-                ),
-              ],
+                    ),
+                  );
+                } else {
+                  return OutlinedButton(
+                    onPressed: () async {
+                      try {
+                        await _connectionService.connectWithStudent(uid);
+                        _showMessage('Connected with $fullName');
+                        setState(() {});
+                      } catch (e) {
+                        _showMessage(e.toString());
+                      }
+                    },
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD32F2F),
+                      side: BorderSide.none,
+                    ),
+                    child: const Text(
+                      'Connect',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  );
+                }
+              },
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  void _showMessage(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFF2A2A2A),
-        behavior: SnackBarBehavior.floating,
       ),
     );
   }

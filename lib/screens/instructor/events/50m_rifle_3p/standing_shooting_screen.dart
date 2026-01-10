@@ -1,19 +1,15 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'dart:async';
-import 'session_report_screen.dart';
-import '../../widgets/shooting_feedback_icons.dart';
-import '../../services/session_service.dart';
-import '../../models/missed_shoot.dart';
-import '../../models/photo_data.dart';
-import '../../models/session_notes.dart';
+import '../../../../widgets/shooting_feedback_icons.dart';
+import '../../../../services/session_service.dart';
+import '../../../../models/missed_shoot.dart';
+import '../../../../models/photo_data.dart';
+import '../../../../models/session_notes.dart';
 import 'dart:typed_data';
-import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image_picker/image_picker.dart';
-
 import 'dart:io';
 import 'package:path_provider/path_provider.dart';
-import 'package:intl/intl.dart' hide TextDirection; // ✅ Hide the conflicting class
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
@@ -35,7 +31,7 @@ class Shot {
   }) : feedback = feedback ?? {};
 }
 
-class PistolShootingScreen extends StatefulWidget {
+class StandingShootingScreen extends StatefulWidget {
 
 
   final String sessionId;
@@ -49,7 +45,7 @@ final List<ShotGroup>?existingShotGroups;
    final List<SessionNote>? existingNotes;
    final List<Map<String, dynamic>>? existingSightingShots;
 
-  const PistolShootingScreen({
+  const StandingShootingScreen({
     super.key,
     required this.sessionId,
     required this.sessionName,
@@ -64,18 +60,21 @@ final List<ShotGroup>?existingShotGroups;
   });
 
   @override
-  State<PistolShootingScreen> createState() => _PistolShootingScreenState();
+  State<StandingShootingScreen> createState() => _StandingShootingScreen();
 }
 
-class _PistolShootingScreenState extends State<PistolShootingScreen> {
-bool _isCoach = false; // Add this
+class _StandingShootingScreen extends State<StandingShootingScreen> {
+String? _selectedWindDirection;
+// Light condition state
+String? _selectedLight; // Values: 'Bright', 'Medium', 'Low'
+
+// Climate condition state
+String? _selectedClimate; // Values: 'Sunny', 'Cloudy', 'Rainy', 'Foggy'
+
 
     bool _isSightingMode = true; // Start in sighting mode
   List<Shot> _sightingShots = []; // Separate list for sighting shots
   Duration _sightingTime = Duration.zero; // Separate time for sighting
-  double _sightingTotalScore = 0.0; // Separate score for sighting
-
-
   Timer? _timer;
   Timer? _sessionTimer;
   Duration _currentShotTime = Duration.zero;
@@ -114,7 +113,7 @@ void initState() {
       if (widget.existingNotes != null && widget.existingNotes!.isNotEmpty) {
       sessionNotes = List<SessionNote>.from(widget.existingNotes!);
     }
-  _checkUserRole();
+  
   // ✅ FIXED: Only add shot if no existing shots were loaded
   if (_shots.isEmpty) {
     addNewShot();
@@ -122,15 +121,6 @@ void initState() {
   }
 }
 
-Future<void> _checkUserRole() async {
-  final currentUser = FirebaseAuth.instance.currentUser;
-  if (currentUser != null) {
-    final isCoach = await _isCoachRole(currentUser.uid);
-    setState(() {
-      _isCoach = isCoach;
-    });
-  }
-}
 
   @override
   void dispose() {
@@ -162,7 +152,6 @@ Future<void> _checkUserRole() async {
       addNewShot();
       _shotPlaced = true;
     });
-    _startSessionTimer();
   }
     double get _calculateSightingScore {
     return _sightingShots.fold(0.0, (sum, shot) => sum + shot.score);
@@ -408,6 +397,40 @@ void _toggleTimer() {
       _calculateScore(_isSightingMode ? _sightingShots[_currentShotIndex] : _shots[_currentShotIndex]);
     });
   }
+// Helper method to build indicator buttons
+// Small circular indicator buttons
+Widget _buildSmallIndicatorButton({
+  required String label,
+  required Color color,
+  required VoidCallback onTap,
+}) {
+  return GestureDetector(
+    onTap: onTap,
+    child: Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: const Color(0xFF2A2A2A),
+        border: Border.all(
+          color: color.withOpacity(0.6),
+          width: 2,
+        ),
+      ),
+      child: Center(
+        child: Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: label == '↔' ? 16 : 14,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 
   void confirmCurrentShot() {
     if (_currentShotIndex < 0) return;
@@ -455,15 +478,8 @@ void _toggleTimer() {
         _shotPlaced = true;
         
         if (_isSightingMode) {
-          _isTimerRunning=false;
-          _timer?.cancel();
-          _shotStartTime=DateTime.now();
           _sightingTime = Duration.zero;
-          
         } else {
-                    _isTimerRunning=false;
-          _timer?.cancel();
-          _shotStartTime=DateTime.now();
           _currentShotTime = Duration.zero;
         }
       });
@@ -587,6 +603,56 @@ void _calculateScore(Shot shot) {
   shot.score = score;
 }
 
+Future<void> _showWindDirectionSelector() async {
+  final result = await showDialog<String>(
+    context: context,
+    builder: (context) => WindDirectionDialog(
+      currentDirection: _selectedWindDirection,
+    ),
+  );
+
+  if (result != null) {
+    setState(() {
+      _selectedWindDirection = result;
+    });
+  }
+}
+
+Future<void> _showLightSelector() async {
+  final result = await showDialog<String>(
+    context: context,
+    builder: (context) => SimpleOptionDialog(
+      title: 'Light Condition',
+      options: const ['Bright', 'Medium', 'Low'],
+      currentSelection: _selectedLight,
+      color: Colors.amber,
+    ),
+  );
+
+  if (result != null) {
+    setState(() {
+      _selectedLight = result;
+    });
+  }
+}
+
+Future<void> _showClimateSelector() async {
+  final result = await showDialog<String>(
+    context: context,
+    builder: (context) => SimpleOptionDialog(
+      title: 'Climate Condition',
+      options: const ['Sunny', 'Cloudy', 'Rainy', 'Foggy'],
+      currentSelection: _selectedClimate,
+      color: Colors.green,
+    ),
+  );
+
+  if (result != null) {
+    setState(() {
+      _selectedClimate = result;
+    });
+  }
+}
 
 
 
@@ -676,30 +742,7 @@ String _formatDurationWithoutMillis(Duration duration) {
   }
 }
 void _toggleFeedback(String feedbackId) {
-  if(_isSightingMode){
- if (_currentShotIndex >= 0 && _currentShotIndex < _sightingShots.length) {
-    print("feedback clicked ..");
-    setState(() {
-      final shot = _sightingShots[_currentShotIndex];
-      if (shot.feedback.contains(feedbackId)) {
-        shot.feedback.remove(feedbackId);
-      } else {
-        shot.feedback.add(feedbackId);
-      }
-      
-      // ✅ NEW: If dry or cross is selected, reset pellet
-      if (feedbackId == 'dry' || feedbackId == 'cross') {
-        if (shot.feedback.contains(feedbackId)) {
-          // User just selected dry/cross - prepare for reset
-          // _shotPlaced = false;
-        }
-      }
-    });
-  }
-  }
-   
   if (_currentShotIndex >= 0 && _currentShotIndex < _shots.length) {
-    print("feedback clicked ..");
     setState(() {
       final shot = _shots[_currentShotIndex];
       if (shot.feedback.contains(feedbackId)) {
@@ -934,39 +977,39 @@ Future<void> _saveSessionWithNotes() async {
       }
     }
 
-    final reportData = SessionReportData(
-      sessionName: widget.sessionName,
-      studentName: widget.studentName,
-      shots: allShots,
-      totalScore: calculateTotalScore(),
-      totalTime: _totalSessionTime,
-      eventType: 'Pistol',
-      notes: finalNotes,
-      notesList: sessionNotes,
-      shotGroups: _shotGroups,
-      missedShots: allMissedShots.isNotEmpty
-          ? allMissedShots.map((m) => MissedShot(
-                shotNumber: m['shotNumber'],
-                feedback: Set<String>.from(m['feedback']),
-                shotTime: Duration(milliseconds: m['time']),
-              )).toList()
-          : null,
-      sightingShots: sightingData, // NEW: Pass to report
-      sightingTotalScore: _calculateSightingScore, // NEW: Pass to report
-    );
+    // final reportData = SessionReportData(
+    //   sessionName: widget.sessionName,
+    //   studentName: widget.studentName,
+    //   shots: allShots,
+    //   totalScore: calculateTotalScore(),
+    //   totalTime: _totalSessionTime,
+    //   eventType: 'Pistol',
+    //   notes: finalNotes,
+    //   notesList: sessionNotes,
+    //   shotGroups: _shotGroups,
+    //   missedShots: allMissedShots.isNotEmpty
+    //       ? allMissedShots.map((m) => MissedShot(
+    //             shotNumber: m['shotNumber'],
+    //             feedback: Set<String>.from(m['feedback']),
+    //             shotTime: Duration(milliseconds: m['time']),
+    //           )).toList()
+    //       : null,
+    //   sightingShots: sightingData, // NEW: Pass to report
+    //   sightingTotalScore: _calculateSightingScore, // NEW: Pass to report
+    // );
 
-    Navigator.of(context, rootNavigator: true).pop();
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SessionReportScreen(
-          reportData: reportData,
-          sessionId: widget.sessionId,
-          shotsPerTarget: widget.shotsPerTarget,
-          photos: photos ?? [],
-        ),
-      ),
-    );
+    // Navigator.of(context, rootNavigator: true).pop();
+    // Navigator.pushReplacement(
+    //   context,
+    //   MaterialPageRoute(
+    //     builder: (context) => SessionReportScreen(
+    //       reportData: reportData,
+    //       sessionId: widget.sessionId,
+    //       shotsPerTarget: widget.shotsPerTarget,
+    //       photos: photos ?? [],
+    //     ),
+    //   ),
+    // );
   }
 
 
@@ -1035,25 +1078,6 @@ Future<bool> _isCoachRole(String userId) async {
   }
 
 
-  // void _createRemainingGroup() {
-  //   if (_shots.isEmpty) return;
-
-  //   final totalGroupedShots = _shotGroups.length * 10;
-  //   final remainingShots = _shots.length - totalGroupedShots;
-
-  //   if (remainingShots > 0) {
-  //     final startIndex = totalGroupedShots;
-  //     final endIndex = _shots.length;
-  //     final remainingGroupShots = _shots.sublist(startIndex, endIndex);
-  //     final groupNumber = _shotGroups.length + 1;
-
-  //     _shotGroups.add(ShotGroup(
-  //       groupNumber: groupNumber,
-  //       groupTime: _totalSessionTime,
-  //       shots: remainingGroupShots,
-  //     ));
-  //   }
-  // }
 final ValueNotifier<int> _uploadProgress = ValueNotifier(0);
 void _updateUploadProgress(int current, int total) {
   _uploadProgress.value = current;
@@ -1063,26 +1087,7 @@ void _updateUploadProgress(int current, int total) {
     return currentList.fold(0.0, (sum, shot) => sum + shot.score);
   }
 
-  Widget _buildScoreBox(String score) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 10),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2A2A2A),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFD32F2F)),
-      ),
-      child: Center(
-        child: Text(
-          score,
-          style: const TextStyle(
-            color: Colors.white,
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ),
-    );
-  }
+
 Widget _buildTooltipWrapper({
   required Widget child,
   required String label,
@@ -1329,6 +1334,68 @@ void _showImageOptionDialog() {
     ),
   );
 }
+
+String _getWindDirectionIcon() {
+  if (_selectedWindDirection == null) return '↔';
+  
+  switch (_selectedWindDirection) {
+    case 'N':
+      return '↑';
+    case 'NE':
+      return '↗';
+    case 'E':
+      return '→';
+    case 'SE':
+      return '↘';
+    case 'S':
+      return '↓';
+    case 'SW':
+      return '↙';
+    case 'W':
+      return '←';
+    case 'NW':
+      return '↖';
+    case 'NONE':
+      return '0';
+    default:
+      return '↔';
+  }
+}
+
+String _getLightIcon() {
+  if (_selectedLight == null) return 'L';
+  
+  switch (_selectedLight) {
+    case 'Bright':
+      return 'B';
+    case 'Medium':
+      return 'M';
+    case 'Low':
+      return 'L';
+    default:
+      return 'L';
+  }
+}
+
+String _getClimateIcon() {
+  if (_selectedClimate == null) return 'C';
+  
+  switch (_selectedClimate) {
+    case 'Sunny':
+      return 'S';
+    case 'Cloudy':
+      return 'C';
+    case 'Rainy':
+      return 'R';
+    case 'Foggy':
+      return 'F';
+    default:
+      return 'C';
+  }
+}
+
+
+
 @override
 Widget build(BuildContext context) {
   final currentList = _isSightingMode ? _sightingShots : _shots;
@@ -1336,11 +1403,7 @@ Widget build(BuildContext context) {
       ? currentList[_currentShotIndex]
       : null;
 
-  final screenHeight = MediaQuery.of(context).size.height;
-  final appBarHeight = kToolbarHeight;
-  final statusBarHeight = MediaQuery.of(context).padding.top;
-  final availableHeight = screenHeight - appBarHeight - statusBarHeight;
-  final responsiveTargetSize = math.min(_targetSize, availableHeight * 0.35);
+
 
   return Scaffold(
     backgroundColor: const Color(0xFF1A1A1A),
@@ -1411,21 +1474,21 @@ Widget build(BuildContext context) {
           ),
         // Begin/End button (only in actual session)
         if (!_isSightingMode)
-          // OutlinedButton(
-          //   onPressed: _toggleSession,
-          //   style: OutlinedButton.styleFrom(
-          //     foregroundColor: _isSessionActive ? const Color(0xFFD32F2F) : Colors.grey,
-          //     side: BorderSide(
-          //       color: _isSessionActive ? const Color(0xFFD32F2F) : Colors.grey,
-          //     ),
-          //     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-          //     minimumSize: const Size(0, 0),
-          //   ),
-          //   child: Text(
-          //     _isSessionActive ? 'End' : 'Begin',
-          //     style: const TextStyle(fontSize: 11),
-          //   ),
-          // ),
+          OutlinedButton(
+            onPressed: _toggleSession,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _isSessionActive ? const Color(0xFFD32F2F) : Colors.grey,
+              side: BorderSide(
+                color: _isSessionActive ? const Color(0xFFD32F2F) : Colors.grey,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              minimumSize: const Size(0, 0),
+            ),
+            child: Text(
+              _isSessionActive ? 'End' : 'Begin',
+              style: const TextStyle(fontSize: 11),
+            ),
+          ),
         const SizedBox(width: 8),
         // Help icon
         IconButton(
@@ -1454,6 +1517,7 @@ Widget build(BuildContext context) {
                   const SizedBox(height: 8),
                   
                   // Target with Sighting Triangle Indicator
+// Target with 3 Indicator Buttons on the right
                   Center(
                     child: Stack(
                       alignment: Alignment.center,
@@ -1523,18 +1587,61 @@ Widget build(BuildContext context) {
                     ),
                   ),
 
-                  const SizedBox(height: 8),
+const SizedBox(height: 8),
 
-                  _buildTooltipWrapper(
-                    label: 'Add Image',
-                    alignment: Alignment.topCenter,
-                    child: IconButton(
-                      icon: const Icon(Icons.camera_alt, color: Colors.white, size: 28),
-                      onPressed: _showImageOptionDialog,
-                      padding: const EdgeInsets.all(6),
-                      constraints: const BoxConstraints(),
-                    ),
-                  ),
+// Row with 3 columns: Empty (left) | Camera (center) | 3 Indicators (right)
+Padding(
+  padding: const EdgeInsets.symmetric(horizontal: 16),
+  child: Row(
+    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+    children: [
+      // Left side: Empty spacer (same width as right side for balance)
+      SizedBox(
+        width: 120, // Same width as the 3 buttons on right
+        child: Container(), // Empty
+      ),
+
+      // Center: Camera Icon
+      _buildTooltipWrapper(
+        label: 'Add Image',
+        alignment: Alignment.topCenter,
+        child: IconButton(
+          icon: const Icon(Icons.camera_alt, color: Colors.white, size: 28),
+          onPressed: _showImageOptionDialog,
+          padding: const EdgeInsets.all(6),
+          constraints: const BoxConstraints(),
+        ),
+      ),
+
+      // Right side: 3 Small Indicator Buttons
+// Right side: 3 Small Indicator Buttons
+Row(
+  mainAxisSize: MainAxisSize.min,
+  children: [
+    _buildSmallIndicatorButton(
+      label: _getLightIcon(),
+      color: Colors.amber,
+      onTap: _showLightSelector,
+    ),
+    const SizedBox(width: 8),
+    _buildSmallIndicatorButton(
+      label: _getWindDirectionIcon(),
+      color: Colors.blue,
+      onTap: _showWindDirectionSelector,
+    ),
+    const SizedBox(width: 8),
+    _buildSmallIndicatorButton(
+      label: _getClimateIcon(),
+      color: Colors.green,
+      onTap: _showClimateSelector,
+    ),
+  ],
+),
+
+    ],
+  ),
+),
+
 
                   // Zoom buttons + Scores
                   Row(
@@ -1789,48 +1896,46 @@ Widget build(BuildContext context) {
               ),
               const SizedBox(height: 10),
 
-              // Feedback buttons - Only show for coaches
-              if (_isCoach)
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2A2A2A),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFD32F2F), width: 1),
-                  ),
-                  child: Column(
-                    children: [
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            _buildCompactFeedbackButton('movement', 'Body Movement', currentShot),
-                            _buildCompactFeedbackButton('stand', 'Standing', currentShot),
-                            _buildCompactFeedbackButton('sitting', 'Sitting', currentShot),
-                            _buildCompactFeedbackButton('talk_with_friends', 'Interaction with coach', currentShot),
-                            _buildCompactFeedbackButton('random_shoot', 'Weapon Movement', currentShot),
-                            _buildCompactFeedbackButton('grip', 'GRIP', currentShot),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            _buildCompactFeedbackButton('shoot_tick', 'Perfect Shot', currentShot),
-                            _buildCompactFeedbackButton('tr', 'Trigger', currentShot),
-                            _buildCompactFeedbackButton('ft', 'Follow Through', currentShot),
-                            _buildCompactFeedbackButton('lh', 'Long Hold', currentShot),
-                            _buildCompactFeedbackButton('dry', 'Dry', currentShot),
-                            _buildCompactFeedbackButton('cross', 'Cancel', currentShot),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+              // Feedback buttons
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2A2A2A),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFD32F2F), width: 1),
                 ),
-
+                child: Column(
+                  children: [
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildCompactFeedbackButton('movement', 'Body Movement', currentShot),
+                          _buildCompactFeedbackButton('stand', 'Standing', currentShot),
+                          _buildCompactFeedbackButton('sitting', 'Sitting', currentShot),
+                          _buildCompactFeedbackButton('talk_with_friends', 'Interaction with coach', currentShot),
+                          _buildCompactFeedbackButton('random_shoot', 'Weapon Movement', currentShot),
+                          _buildCompactFeedbackButton('grip', 'GRIP', currentShot),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildCompactFeedbackButton('shoot_tick', 'Perfect Shot', currentShot),
+                          _buildCompactFeedbackButton('tr', 'Trigger', currentShot),
+                          _buildCompactFeedbackButton('ft', 'Follow Through', currentShot),
+                          _buildCompactFeedbackButton('lh', 'Long Hold', currentShot),
+                          _buildCompactFeedbackButton('dry', 'Dry', currentShot),
+                          _buildCompactFeedbackButton('cross', 'Cancel', currentShot),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
 
                 ],
               ),
@@ -2018,9 +2123,6 @@ for (int ringNum = 1; ringNum <= 8; ringNum++) {
 
     // Draw shots
     if (shots.isNotEmpty) {
-      final currentBatch = (shots.length - 1) ~/ shotsPerBatch;
-      final batchStartIndex = currentBatch * shotsPerBatch;
-      final batchEndIndex = math.min(batchStartIndex + shotsPerBatch, shots.length);
       final pelletRadius = 4.5 / 2 * scale;
 
       for (int i = 0; i < shots.length; i++) {
@@ -2155,6 +2257,457 @@ class _SavingSessionDialog extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+class WindDirectionDialog extends StatefulWidget {
+  final String? currentDirection;
+
+  const WindDirectionDialog({
+    super.key,
+    this.currentDirection,
+  });
+
+  @override
+  State<WindDirectionDialog> createState() => _WindDirectionDialogState();
+}
+
+class _WindDirectionDialogState extends State<WindDirectionDialog> {
+  String? selectedDirection;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedDirection = widget.currentDirection;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF2A2A2A),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Title
+            const Text(
+              'Wind Direction',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Select wind direction or no wind',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Wind Direction Compass
+            SizedBox(
+              width: 280,
+              height: 280,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  // Background circle
+                  Container(
+                    width: 280,
+                    height: 280,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF1A1A1A),
+                      border: Border.all(
+                        color: Colors.blue.withOpacity(0.3),
+                        width: 2,
+                      ),
+                    ),
+                  ),
+
+                  // Center circle lines (decorative)
+                  CustomPaint(
+                    size: const Size(280, 280),
+                    painter: CompassLinesPainter(),
+                  ),
+
+                  // 8 Direction Buttons
+                  ..._buildDirectionButtons(),
+
+                  // Center "No Wind" Button
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        selectedDirection = 'NONE';
+                      });
+                    },
+                    child: Container(
+                      width: 60,
+                      height: 60,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: selectedDirection == 'NONE'
+                            ? Colors.blue
+                            : const Color(0xFF2A2A2A),
+                        border: Border.all(
+                          color: selectedDirection == 'NONE'
+                              ? Colors.white
+                              : Colors.blue.withOpacity(0.5),
+                          width: 2,
+                        ),
+                      ),
+                      child: Center(
+                        child: Text(
+                          '0',
+                          style: TextStyle(
+                            color: selectedDirection == 'NONE'
+                                ? Colors.white
+                                : Colors.blue,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+
+            // Action Buttons
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: selectedDirection != null
+                      ? () => Navigator.pop(context, selectedDirection)
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue,
+                    disabledBackgroundColor: Colors.grey,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text(
+                    'OK',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _buildDirectionButtons() {
+    final directions = [
+      {'label': 'N', 'icon': '↑', 'angle': 0.0, 'name': 'North'},
+      {'label': 'NE', 'icon': '↗', 'angle': 45.0, 'name': 'North East'},
+      {'label': 'E', 'icon': '→', 'angle': 90.0, 'name': 'East'},
+      {'label': 'SE', 'icon': '↘', 'angle': 135.0, 'name': 'South East'},
+      {'label': 'S', 'icon': '↓', 'angle': 180.0, 'name': 'South'},
+      {'label': 'SW', 'icon': '↙', 'angle': 225.0, 'name': 'South West'},
+      {'label': 'W', 'icon': '←', 'angle': 270.0, 'name': 'West'},
+      {'label': 'NW', 'icon': '↖', 'angle': 315.0, 'name': 'North West'},
+    ];
+
+    return directions.map((dir) {
+      final angle = (dir['angle'] as double) * math.pi / 180;
+      final radius = 110.0; // Distance from center
+      final x = radius * math.sin(angle);
+      final y = -radius * math.cos(angle);
+
+      return Positioned(
+        left: 140 + x - 30, // Center (140) + offset - half button width
+        top: 140 + y - 30,
+        child: GestureDetector(
+          onTap: () {
+            setState(() {
+              selectedDirection = dir['label'] as String;
+            });
+          },
+          child: Container(
+            width: 60,
+            height: 60,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: selectedDirection == dir['label']
+                  ? Colors.blue
+                  : const Color(0xFF2A2A2A),
+              border: Border.all(
+                color: selectedDirection == dir['label']
+                    ? Colors.white
+                    : Colors.blue.withOpacity(0.5),
+                width: 2,
+              ),
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  dir['icon'] as String,
+                  style: TextStyle(
+                    color: selectedDirection == dir['label']
+                        ? Colors.white
+                        : Colors.blue,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  dir['label'] as String,
+                  style: TextStyle(
+                    color: selectedDirection == dir['label']
+                        ? Colors.white
+                        : Colors.blue.withOpacity(0.7),
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }).toList();
+  }
+}
+
+// Custom Painter for decorative compass lines
+class CompassLinesPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = Colors.blue.withOpacity(0.1)
+      ..strokeWidth = 1;
+
+    final center = Offset(size.width / 2, size.height / 2);
+
+    // Draw 8 lines from center to edges
+    for (int i = 0; i < 8; i++) {
+      final angle = (i * 45.0) * math.pi / 180;
+      final endX = center.dx + 140 * math.sin(angle);
+      final endY = center.dy - 140 * math.cos(angle);
+
+      canvas.drawLine(
+        center,
+        Offset(endX, endY),
+        paint,
+      );
+    }
+
+    // Draw concentric circles
+    for (int i = 1; i <= 3; i++) {
+      canvas.drawCircle(
+        center,
+        40.0 * i,
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+class SimpleOptionDialog extends StatefulWidget {
+  final String title;
+  final List<String> options;
+  final String? currentSelection;
+  final Color color;
+
+  const SimpleOptionDialog({
+    super.key,
+    required this.title,
+    required this.options,
+    this.currentSelection,
+    required this.color,
+  });
+
+  @override
+  State<SimpleOptionDialog> createState() => _SimpleOptionDialogState();
+}
+
+class _SimpleOptionDialogState extends State<SimpleOptionDialog> {
+  String? selectedOption;
+
+  @override
+  void initState() {
+    super.initState();
+    selectedOption = widget.currentSelection;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: const Color(0xFF2A2A2A),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Title
+            Text(
+              widget.title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Select an option',
+              style: TextStyle(
+                color: Colors.white.withOpacity(0.6),
+                fontSize: 13,
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Options List
+            ...widget.options.map((option) {
+              final isSelected = selectedOption == option;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      selectedOption = option;
+                    });
+                  },
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 16,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? widget.color.withOpacity(0.2)
+                          : const Color(0xFF1A1A1A),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected
+                            ? widget.color
+                            : widget.color.withOpacity(0.3),
+                        width: isSelected ? 2 : 1,
+                      ),
+                    ),
+                    child: Row(
+                      children: [
+                        // Selection indicator
+                        Container(
+                          width: 24,
+                          height: 24,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: isSelected
+                                ? widget.color
+                                : Colors.transparent,
+                            border: Border.all(
+                              color: widget.color,
+                              width: 2,
+                            ),
+                          ),
+                          child: isSelected
+                              ? const Icon(
+                                  Icons.check,
+                                  color: Colors.white,
+                                  size: 16,
+                                )
+                              : null,
+                        ),
+                        const SizedBox(width: 16),
+                        // Option text
+                        Text(
+                          option,
+                          style: TextStyle(
+                            color: isSelected
+                                ? Colors.white
+                                : Colors.white.withOpacity(0.8),
+                            fontSize: 16,
+                            fontWeight: isSelected
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+
+            const SizedBox(height: 24),
+
+            // Action Buttons
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.white70),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                ElevatedButton(
+                  onPressed: selectedOption != null
+                      ? () => Navigator.pop(context, selectedOption)
+                      : null,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: widget.color,
+                    disabledBackgroundColor: Colors.grey,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 12,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text(
+                    'OK',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );

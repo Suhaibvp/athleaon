@@ -1,51 +1,51 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:math' as math;
-import '../../widgets/shooting_feedback_icons.dart';
-import 'pistol_shooting_screen.dart';
+import '../../../../widgets/shooting_feedback_icons.dart';
+
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import '../../services/pdf_drawing_service.dart';
+import '../../../../services/pdf_drawing_service.dart';
 import 'dart:math' show max;
 // ✅ Add this import
 import 'package:flutter/services.dart';
-import '../../models/missed_shoot.dart';
+import '../../../../models/missed_shoot.dart';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/rendering.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import '../../services/pdf_service.dart';
+import '../../../../services/pdf_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'package:image_picker/image_picker.dart';
 import 'dart:typed_data';
-import '../../models/attach_image.dart';
-import '../../models/photo_data.dart';
+import '../../../../models/attach_image.dart';
+import '../../../../models/photo_data.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
-import '../../services/session_service.dart';
-import '../../models/attached_file.dart';
+import '../../../../services/session_service.dart';
+import '../../../../models/attached_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:archive/archive_io.dart';
 import 'dart:io';
-import '../../models/session_notes.dart';
+import '../../../../models/session_notes.dart';
 import 'package:intl/intl.dart' hide TextDirection;
+import '../../../../models/precision_shot_group.dart';
 
 
-
-class SessionReportScreen extends StatefulWidget {
-  final SessionReportData reportData;
+class PrecisionSessionReportScreen extends StatefulWidget {
+  final PrecisionSessionReportData reportData;
   final String sessionId;
   final int shotsPerTarget;
   final List<PhotoData> photos; // Add photos list
 
-  const SessionReportScreen({
+  const PrecisionSessionReportScreen({
     Key? key,
     required this.reportData,
     required this.sessionId,
@@ -54,11 +54,11 @@ class SessionReportScreen extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  State<SessionReportScreen> createState() => _SessionReportScreenState();
+  State<PrecisionSessionReportScreen> createState() => _PrecisionSessionReportScreen();
   
 }
 
-class _SessionReportScreenState extends State<SessionReportScreen> {
+class _PrecisionSessionReportScreen extends State<PrecisionSessionReportScreen> {
   // ✅ Global keys for each group
   late List<GlobalKey> _groupKeys;
   late GlobalKey _scoreGraphKey;
@@ -94,61 +94,59 @@ class _SessionReportScreenState extends State<SessionReportScreen> {
 }
 // ✅ NEW METHOD: Build invisible cumulative target
 // ✅ UPDATED METHOD: Build invisible cumulative target (NO RED RING)
-Widget _buildInvisibleCumulativeTarget() {
+Widget buildInvisibleCumulativeTarget() {
   return RepaintBoundary(
     key: _cumulativeTargetKey,
-    child: Material( // ✅ Add Material
+    child: Material(
       color: Colors.white,
-      child: DefaultTextStyle( // ✅ Add DefaultTextStyle
+      child: DefaultTextStyle(
         style: const TextStyle(
           decoration: TextDecoration.none,
           color: Colors.black,
         ),
-        child:Container(
-      color: const Color.fromARGB(255, 255, 255, 255),  // ✅ BLACK background
-      width: 600,
-      height: 450,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Just the target circle - like in your UI
-          Center(
-            child: Column(
-              children: [
-                Container(
-                  width: 320,
-                  height: 320,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(color: Colors.white, width: 1),  // ✅ WHITE border instead of red
-                  ),
-                  child: CustomPaint(
-                    painter: widget.reportData.eventType == 'Pistol'
-                        ? ReportPistolTargetPainter(shots: widget.reportData.shots)
-                        : ReportRifleTargetPainter(shots: widget.reportData.shots),
-                  ),
+        child: Container(
+          color: const Color.fromARGB(255, 255, 255, 255),
+          width: 600,
+          height: 450,
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Center(
+                child: Column(
+                  children: [
+                    Container(
+                      width: 320,
+                      height: 320,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 1),
+                      ),
+                      child: CustomPaint(
+                        painter: _getTargetPainter(widget.reportData.shots), // ✅ NEW METHOD
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'All Shots',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                const Text(
-                  'All Shots',
-                  style: TextStyle(
-                    color: Colors.black,  // ✅ WHITE text for dark background
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     ),
-      )
-    )
   );
 }
+
 // UPDATED: Build invisible shots table with sighting shots
 Widget buildInvisibleShotsTable() {
   return RepaintBoundary(
@@ -486,18 +484,20 @@ Widget _buildImageAnnotationDialog(Uint8List imageData) {
 // NEW: Build sighting shots table
 List<Widget> buildSightingShotsTable() {
   if (widget.reportData.sightingShots == null ||
-      widget.reportData.sightingShots!.isEmpty) {
-    return [];
-  }
+      widget.reportData.sightingShots!.isEmpty) return [];
 
   final rows = <Widget>[];
-
   for (int i = 0; i < widget.reportData.sightingShots!.length; i++) {
     final shot = widget.reportData.sightingShots![i];
     final score = (shot['score'] ?? 0.0) as double;
     final shotTimeMs = (shot['time'] as int?) ?? 0;
     final shotTime = Duration(milliseconds: shotTimeMs);
     final feedbackList = (shot['feedback'] as List?)?.cast<String>() ?? [];
+    
+    // ✅ Extract environmental data
+    final light = shot['light'] as String?;
+    final wind = shot['wind'] as String?;
+    final climate = shot['climate'] as String?;
 
     rows.add(
       Container(
@@ -541,9 +541,48 @@ List<Widget> buildSightingShotsTable() {
                 textAlign: TextAlign.center,
               ),
             ),
-            // Feedback
+            // ✅ Light
             Expanded(
               flex: 1,
+              child: Text(
+                _getLightIcon(light),
+                style: const TextStyle(
+                  color: Colors.amber,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            // ✅ Wind
+            Expanded(
+              flex: 1,
+              child: Text(
+                _getWindIcon(wind),
+                style: const TextStyle(
+                  color: Colors.blue,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            // ✅ Climate
+            Expanded(
+              flex: 1,
+              child: Text(
+                _getClimateIcon(climate),
+                style: const TextStyle(
+                  color: Colors.green,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            // Feedback
+            Expanded(
+              flex: 2,
               child: Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: feedbackList.isEmpty
@@ -575,9 +614,9 @@ List<Widget> buildSightingShotsTable() {
       ),
     );
   }
-
   return rows;
 }
+
 
 List<Widget> _buildTableRowsForPDF() {
   final rows = <Widget>[];
@@ -1568,33 +1607,29 @@ Widget build(BuildContext context) {
                                 const SizedBox(height: 16),
 
                                 // Sighting Target
-                                Center(
-                                  child: Column(
-                                    children: [
-                                      Container(
-                                        width: 280,
-                                        height: 280,
-    
-                                        child: CustomPaint(
-                                          painter: widget.reportData.eventType == 'Pistol'
-                                              ? ReportPistolTargetPainter(
-                                                  shots: widget.reportData.sightingShots!)
-                                              : ReportRifleTargetPainter(
-                                                  shots: widget.reportData.sightingShots!),
-                                        ),
-                                      ),
-                                      const SizedBox(height:18),
-                                      const Text(
-                                        'Sighting Shots',
-                                        style: TextStyle(
-                                          color: Colors.orange,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                    ],
+                          // Sighting Target
+                          Center(
+                            child: Column(
+                              children: [
+                                Container(
+                                  width: 280,
+                                  height: 280,
+                                  child: CustomPaint(
+                                    painter: _getTargetPainter(widget.reportData.sightingShots!), // ✅ NEW METHOD
                                   ),
                                 ),
+                                const SizedBox(height: 18),
+                                const Text(
+                                  'Sighting Shots',
+                                  style: TextStyle(
+                                    color: Colors.orange,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
 
                                 const SizedBox(height: 16),
 
@@ -1769,55 +1804,54 @@ Widget build(BuildContext context) {
               ..._buildVisibleGroupCards(),
 
               // CUMULATIVE TARGET SECTION
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Cumulative',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Center(
-                      child: Column(
-                        children: [
-                          Container(
-                            width: 280,
-                            height: 280,
-
-                            child: CustomPaint(
-                              painter: widget.reportData.eventType == 'Pistol'
-                                  ? ReportPistolTargetPainter(
-                                      shots: widget.reportData.shots)
-                                  : ReportRifleTargetPainter(
-                                      shots: widget.reportData.shots),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'All Shots',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    _buildTableHeader(),
-                    const SizedBox(height: 8),
-                    ..._buildTableRows(widget.reportData.shots, 0),
-                    const SizedBox(height: 12),
-                  ],
-                ),
+// CUMULATIVE TARGET SECTION
+Padding(
+  padding: const EdgeInsets.all(16),
+  child: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      const Text(
+        'Cumulative',
+        style: TextStyle(
+          color: Colors.white,
+          fontSize: 18,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+      const SizedBox(height: 12),
+      Center(
+        child: Column(
+          children: [
+            Container(
+              width: 280,
+              height: 280,
+              // decoration: BoxDecoration(
+              //   shape: BoxShape.circle,
+              //   border: Border.all(
+              //     color: const Color(0xFFD32F2F),
+              //     width: 3,
+              //   ),
+              // ),
+              child: CustomPaint(
+                painter: _getTargetPainter(widget.reportData.shots), // ✅ NEW METHOD
               ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'All Shots',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  ),
+),
+
 
               const SizedBox(height: 16),
 
@@ -2093,7 +2127,7 @@ Widget build(BuildContext context) {
           children: [
             ..._buildInvisibleGroupsForCapture(),
             _buildInvisibleScoreGraph(),
-            _buildInvisibleCumulativeTarget(),
+            buildInvisibleCumulativeTarget(),
             buildInvisibleShotsTable(),
           ],
         ),
@@ -2120,7 +2154,7 @@ List<Widget> _buildVisibleGroupCards() {
 }
 
 
-Widget buildGroupCardWithPhotos(ShotGroup group, int groupIndex) {
+Widget buildGroupCardWithPhotos(PrecisionShotGroup group, int groupIndex) {
   final groupPhotos = widget.photos.where((photo) => photo.shotGroup == group.groupNumber).toList();
 
   return Column(
@@ -2374,22 +2408,28 @@ Future<void> _deletePhoto(int photoIndex) async {
 
 
 // ✅ Original buildGroupCard - clean, no photos (for PDF capture)
-Widget buildGroupCard(ShotGroup group, int groupIndex) {
-  final groupShots = group.shots.map((shot) => {
-    'x': shot.position.dx,
-    'y': shot.position.dy,
-    'score': shot.score,
-    'time': shot.shotTime.inMilliseconds,
-    'feedback': shot.feedback.toList(),
-    'ring': shot.ringNumber,
+Widget buildGroupCard(PrecisionShotGroup group, int groupIndex) {
+  // ✅ FIX: Include environmental data when converting to map
+  final groupShots = group.shots.map((shot) {
+    return {
+      'x': shot.position.dx,
+      'y': shot.position.dy,
+      'score': shot.score,
+      'time': shot.shotTime.inMilliseconds,
+      'feedback': shot.feedback.toList(),
+      'ring': shot.ringNumber,
+      'light': shot.light,      // ✅ ADD THIS
+      'wind': shot.wind,        // ✅ ADD THIS
+      'climate': shot.climate,  // ✅ ADD THIS
+    };
   }).toList();
 
-  final totalGroupScore = groupShots.fold<double>(0, (sum, shot) => sum + (shot['score'] as double? ?? 0));
+  final totalGroupScore =
+      groupShots.fold<double>(0, (sum, shot) => sum + (shot['score'] as double? ?? 0));
   final totalGroupScoreWithoutDecimal = groupShots.fold<int>(
-    0, 
-    (sum, shot) => sum + ((shot['score'] as double? ?? 0.0).floor())
-  );
-  final startShotNumber = ((group.groupNumber - 1) * 10) + 1;
+      0, (sum, shot) => sum + (shot['score'] as double? ?? 0.0).floor());
+
+  final startShotNumber = (group.groupNumber - 1) * 10 + 1;
   final endShotNumber = startShotNumber + groupShots.length - 1;
 
   return Container(
@@ -2406,18 +2446,29 @@ Widget buildGroupCard(ShotGroup group, int groupIndex) {
           padding: const EdgeInsets.all(12),
           decoration: const BoxDecoration(
             color: Color(0xFFD32F2F),
-            borderRadius: BorderRadius.only(topLeft: Radius.circular(12), topRight: Radius.circular(12)),
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(12),
+              topRight: Radius.circular(12),
+            ),
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
                 'S$startShotNumber-S$endShotNumber',
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               Text(
                 'Time: ${_formatDurationWithMillis(_calculateIndividualGroupTime(groupIndex))}',
-                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ],
           ),
@@ -2434,17 +2485,29 @@ Widget buildGroupCard(ShotGroup group, int groupIndex) {
                 children: [
                   Column(
                     children: [
-                      Text('${groupShots.length}', style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                      Text('${groupShots.length}',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      const Text('Shots', style: TextStyle(color: Color(0xFFD32F2F), fontSize: 12)),
+                      const Text('Shots',
+                          style:
+                              TextStyle(color: Color(0xFFD32F2F), fontSize: 12)),
                     ],
                   ),
                   Column(
                     children: [
-                      Text('$totalGroupScoreWithoutDecimal(${totalGroupScore.toStringAsFixed(1)})',
-                        style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+                      Text(
+                          '$totalGroupScoreWithoutDecimal/${totalGroupScore.toStringAsFixed(1)}',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold)),
                       const SizedBox(height: 4),
-                      const Text('Score', style: TextStyle(color: Color(0xFFD32F2F), fontSize: 12)),
+                      const Text('Score',
+                          style:
+                              TextStyle(color: Color(0xFFD32F2F), fontSize: 12)),
                     ],
                   ),
                 ],
@@ -2453,30 +2516,33 @@ Widget buildGroupCard(ShotGroup group, int groupIndex) {
               const SizedBox(height: 16),
 
               // Target
-              Center(
-                child: SizedBox(
-                  width: 280,
-                  height: 280,
-                  child: Container(
-                    // decoration: BoxDecoration(
-                    //   shape: BoxShape.circle,
-                    //   border: Border.all(color: const Color(0xFFD32F2F), width: 2),
-                    // ),
-                    child: CustomPaint(
-                      painter: widget.reportData.eventType == 'Pistol'
-                          ? ReportPistolTargetPainter(shots: groupShots)
-                          : ReportRifleTargetPainter(shots: groupShots),
-                    ),
+// Inside buildGroupCard method, find the target display:
+            Center(
+              child: SizedBox(
+                width: 280,
+                height: 280,
+                child: Container(
+                  // decoration: BoxDecoration(
+                  //   shape: BoxShape.circle,
+                  //   border: Border.all(
+                  //     color: const Color(0xFFD32F2F),
+                  //     width: 2,
+                  //   ),
+                  // ),
+                  child: CustomPaint(
+                    painter: _getTargetPainter(groupShots), // ✅ NEW METHOD
                   ),
                 ),
               ),
+            ),
+
 
               const SizedBox(height: 16),
 
               // Table
               _buildTableHeader(),
               const SizedBox(height: 8),
-              ..._buildTableRows(groupShots, ((group.groupNumber - 1) * 10)),
+              ..._buildTableRows(groupShots, (group.groupNumber - 1) * 10),
             ],
           ),
         ),
@@ -2485,6 +2551,33 @@ Widget buildGroupCard(ShotGroup group, int groupIndex) {
   );
 }
 
+
+// ✅ NEW METHOD: Get the correct target painter based on event type
+CustomPainter _getTargetPainter(List<Map<String, dynamic>> shots) {
+  final eventType = widget.reportData.eventType;
+  
+  print("=== DEBUG: eventType = '$eventType'");
+  
+  if (eventType.contains('25m Sports Pistol Precision') || 
+      eventType.contains('Sports Pistol Precision')) {
+    print("✅ 25m Precision Pistol matched");
+    return ReportPrecisionPistolTargetPainter(shots: shots);
+  } else if (eventType.contains('25m Rapid Fire') || 
+             eventType.contains('Rapid')) {
+    print("✅ 25m Rapid Fire matched");
+    return ReportRapidFireTargetPainter(shots: shots);
+  } else if (eventType.contains('50m Rifle') || 
+             eventType.contains('Rifle 3P')) {
+    print("✅ 50m Rifle 3P matched");
+    return ReportRifle3PTargetPainter(shots: shots);
+  } else if (eventType.contains('Pistol')) {
+    print("✅ Default Pistol matched");
+    return ReportPistolTargetPainter(shots: shots);
+  } else {
+    print("❌ Default Rifle matched");
+    return ReportRifleTargetPainter(shots: shots);
+  }
+}
 
 
 // Add these methods to your SessionReportScreen State:
@@ -2920,36 +3013,105 @@ Future<Map<String, dynamic>> _captureSummaryData() async {
   }
 
   // ✅ BUILD TABLE HEADER
-  Widget _buildTableHeader() {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2A2A2A),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: const [
-          Expanded(
-            flex: 1,
-            child: Text('Shot #', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+Widget _buildTableHeader() {
+  return Container(
+    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+    decoration: BoxDecoration(
+      color: const Color(0xFF2A2A2A),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Row(
+      children: [
+        const Expanded(
+          flex: 1,
+          child: Text(
+            'Shot#',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
           ),
-          Expanded(
-            flex: 1,
-            child: Text('Score', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+        ),
+        const Expanded(
+          flex: 1,
+          child: Text(
+            'Score',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
           ),
-          Expanded(
-            flex: 1,
-            child: Text('Time', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+        ),
+        const Expanded(
+          flex: 1,
+          child: Text(
+            'Time',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
           ),
-          Expanded(
-            flex: 1,
-            child: Text('Feedback', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold), textAlign: TextAlign.center),
+        ),
+        // ✅ NEW: Environmental conditions
+        const Expanded(
+          flex: 1,
+          child: Text(
+            'L', // Light
+            style: TextStyle(
+              color: Colors.amber,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
           ),
-        ],
-      ),
-    );
-  }
-  
+        ),
+        const Expanded(
+          flex: 1,
+          child: Text(
+            'W', // Wind
+            style: TextStyle(
+              color: Colors.blue,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const Expanded(
+          flex: 1,
+          child: Text(
+            'C', // Climate
+            style: TextStyle(
+              color: Colors.green,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+        const Expanded(
+          flex: 2,
+          child: Text(
+            'Feedback',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 
 List<Widget> _buildTableRows(List<Map<String, dynamic>> shots, int startIndex) {
   final rows = <Widget>[];
@@ -2995,58 +3157,171 @@ List<Widget> _buildTableRows(List<Map<String, dynamic>> shots, int startIndex) {
 
 
   // ✅ BUILD SHOT ROW
-  Widget _buildShotRow(Map<String, dynamic> shot, int shotNumber) {
-    final shotTime = Duration(milliseconds: shot['time'] ?? 0);
-    final feedbackList = (shot['feedback'] as List?)?.cast<String>() ?? [];
+Widget _buildShotRow(Map<String, dynamic> shot, int shotNumber) {
+  final shotTime = Duration(milliseconds: shot['time'] ?? 0);
+  final feedbackList = (shot['feedback'] as List?)?.cast<String>() ?? [];
+  
+  // ✅ Extract environmental data
+  final light = shot['light'] as String?;
+  final wind = shot['wind'] as String?;
+  final climate = shot['climate'] as String?;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2A2A2A),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            flex: 1,
-            child: Text('$shotNumber', style: const TextStyle(color: Colors.white, fontSize: 12), textAlign: TextAlign.center),
+  return Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+    decoration: BoxDecoration(
+      color: const Color(0xFF2A2A2A),
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Row(
+      children: [
+        // Shot number
+        Expanded(
+          flex: 1,
+          child: Text(
+            '$shotNumber',
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+            textAlign: TextAlign.center,
           ),
-          Expanded(
-            flex: 1,
-            child: Text((shot['score'] ?? 0.0).toStringAsFixed(1), style: const TextStyle(color: Colors.white, fontSize: 12), textAlign: TextAlign.center),
+        ),
+        // Score
+        Expanded(
+          flex: 1,
+          child: Text(
+            (shot['score'] ?? 0.0).toStringAsFixed(1),
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+            textAlign: TextAlign.center,
           ),
-          Expanded(
-            flex: 1,
-            child: Text(_formatDurationWithMillis(shotTime), style: const TextStyle(color: Colors.white, fontSize: 12), textAlign: TextAlign.center),
+        ),
+        // Time
+        Expanded(
+          flex: 1,
+          child: Text(
+            _formatDurationWithMillis(shotTime),
+            style: const TextStyle(color: Colors.white, fontSize: 12),
+            textAlign: TextAlign.center,
           ),
-          Expanded(
-            flex: 1,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: feedbackList.isEmpty
-                ? const Text('-', style: TextStyle(color: Colors.white, fontSize: 12))
-                : // FIXED: Use buildDisplayIcon instead of direct Image.asset
-                Wrap(
-                  spacing: 4,
-                  runSpacing: 4,
-                  alignment: WrapAlignment.center,
-                  children: feedbackList.map((feedbackId) {
-                    return ShootingFeedbackIcons.buildDisplayIcon(
-                      iconId: feedbackId,
-                      size: 16,
-                      isSelected: false, // Don't highlight in reports
-                    );
-                  }).toList(),
-                )
+        ),
+        // ✅ Light
+        Expanded(
+          flex: 1,
+          child: Text(
+            _getLightIcon(light),
+            style: const TextStyle(color: Colors.amber, fontSize: 12, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+        ),
+        // ✅ Wind Direction (arrow)
+        Expanded(
+          flex: 1,
+          child: Text(
+            _getWindIcon(wind),
+            style: const TextStyle(color: Colors.blue, fontSize: 14, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+        ),
+        // ✅ Climate
+        Expanded(
+          flex: 1,
+          child: Text(
+            _getClimateIcon(climate),
+            style: const TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
+          ),
+        ),
+        // Feedback
+        Expanded(
+          flex: 2,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: feedbackList.isEmpty
+                ? const Text(
+                    '-',
+                    style: TextStyle(color: Colors.white, fontSize: 12),
+                    textAlign: TextAlign.center,
+                  )
+                : Wrap(
+                    spacing: 4,
+                    runSpacing: 4,
+                    alignment: WrapAlignment.center,
+                    children: feedbackList.map((feedbackId) {
+                      return Image.asset(
+                        ShootingFeedbackIcons.getIconPath(feedbackId) ?? '',
+                        width: 16,
+                        height: 16,
+                        errorBuilder: (context, error, stackTrace) {
+                          return Icon(
+                            ShootingFeedbackIcons.getFallbackIcon(feedbackId),
+                            color: Colors.white,
+                            size: 16,
+                          );
+                        },
+                      );
+                    }).toList(),
+                  ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
-            ),
-          ),
-
-        ],
-      ),
-    );
+// ✅ Helper functions for environmental icons
+String _getLightIcon(String? light) {
+  if (light == null) return '-';
+  switch (light) {
+    case 'Bright':
+      return 'B';
+    case 'Medium':
+      return 'M';
+    case 'Low':
+      return 'L';
+    default:
+      return '-';
   }
+}
+
+String _getWindIcon(String? wind) {
+  if (wind == null) return '-';
+  switch (wind) {
+    case 'N':
+      return '↑';
+    case 'NE':
+      return '↗';
+    case 'E':
+      return '→';
+    case 'SE':
+      return '↘';
+    case 'S':
+      return '↓';
+    case 'SW':
+      return '↙';
+    case 'W':
+      return '←';
+    case 'NW':
+      return '↖';
+    case 'NONE':
+      return '○';
+    default:
+      return '-';
+  }
+}
+
+String _getClimateIcon(String? climate) {
+  if (climate == null) return '-';
+  switch (climate) {
+    case 'Sunny':
+      return 'S';
+    case 'Cloudy':
+      return 'C';
+    case 'Rainy':
+      return 'R';
+    case 'Foggy':
+      return 'F';
+    default:
+      return '-';
+  }
+}
 
 // ✅ BUILD MISSED SHOT ROW WITH TIME
 Widget _buildMissedShotRow(int shotNumber, List<String> feedback, Duration shotTime) {
@@ -3098,13 +3373,18 @@ Widget _buildMissedShotRow(int shotNumber, List<String> feedback, Duration shotT
                   spacing: 4,
                   runSpacing: 4,
                   alignment: WrapAlignment.center,
-                  children: feedback.map((feedbackId) {
-                    return ShootingFeedbackIcons.buildDisplayIcon(
-                      iconId: feedbackId,
-                      size: 16,
-                      isSelected: false, // Don't highlight in reports
-                    );
-                  }).toList(),
+                  children: feedback.map((feedbackId) => Image.asset(
+                    ShootingFeedbackIcons.getIconPath(feedbackId) ?? '',
+                    width: 16,
+                    height: 16,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Icon(
+                        ShootingFeedbackIcons.getFallbackIcon(feedbackId),
+                        color: Colors.white,
+                        size: 16,
+                      );
+                    },
+                  )).toList(),
                 ),
           ),
         ),
@@ -3171,7 +3451,7 @@ Widget _buildMissedShotRow(int shotNumber, List<String> feedback, Duration shotT
 // (Same as before - ReportPistolTargetPainter, ReportRifleTargetPainter, SessionReportData, etc.)
 
 // Data model
-class SessionReportData {
+class PrecisionSessionReportData {
   final String sessionName;
   final String studentName;
   final List<Map<String, dynamic>> shots;
@@ -3180,14 +3460,14 @@ class SessionReportData {
   final String eventType;
   final String? notes; // Keep for backwards compatibility
   final List<SessionNote>? notesList; // ✅ NEW: List of notes with timestamps
-  final List<ShotGroup>? shotGroups;
+  final List<PrecisionShotGroup>? shotGroups;
   final List<MissedShot>? missedShots;
     final List<Map<String, dynamic>>? sightingShots; // Separate list for sighting shots
   final double? sightingTotalScore; // Total score from sighting shots
 
   
 
-  SessionReportData({
+  PrecisionSessionReportData({
     required this.sessionName,
     required this.studentName,
     required this.shots,
@@ -3205,6 +3485,170 @@ class SessionReportData {
 
 // Keep your existing painter classes here
 
+class ReportPrecisionPistolTargetPainter extends CustomPainter {
+  final List<Map<String, dynamic>> shots;
+
+  ReportPrecisionPistolTargetPainter({required this.shots});
+  final double targetSize = 280.0;
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(targetSize / 2, targetSize / 2);
+    
+    // Calculate minimum ring from shots
+    int minRing = 10;
+    if (shots.isNotEmpty) {
+      for (var shot in shots) {
+        final score = (shot['score'] ?? 10.0) as double;
+        final ring = score.floor();
+        if (ring > 0 && ring < minRing) {
+          minRing = ring;
+        }
+      }
+    }
+    
+    // ✅ Show TWO extra rings: one for pellet edge, one for safety margin
+    final startRing = (minRing - 2).clamp(1, 10);
+    
+    // ✅ 25m Precision Pistol Target - Ring DIAMETERS in mm
+    final Map<int, double> ringDiameters = {
+      1: 500.0, 2: 450.0, 3: 400.0, 4: 350.0, 5: 300.0,
+      6: 250.0, 7: 200.0, 8: 150.0, 9: 100.0, 10: 50.0,
+    };
+    
+    final outerDiameter = ringDiameters[startRing]!;
+    
+    // Calculate both scales
+    final originalScale = targetSize / 500.0; // Original full target scale
+    final scale = targetSize / outerDiameter; // Zoomed scale
+    final scaleRatio = scale / originalScale;
+    
+    // Convert diameters to radii in pixels
+    final Map<int, double> ringRadii = {};
+    ringDiameters.forEach((ring, diameter) {
+      ringRadii[ring] = (diameter / 2) * scale;
+    });
+    
+    final double innerTenRadius = (25.0 / 2.0) * scale;// Inner 10 (25mm radius)
+
+    // Draw rings from startRing to 10
+    for (int ringNum = startRing; ringNum <= 10; ringNum++) {
+      final radius = ringRadii[ringNum]!;
+      final isBlackRing = ringNum >= 7; // Rings 7-10 are black
+      final fillColor = isBlackRing ? Colors.black : Colors.white;
+      final borderColor = isBlackRing ? Colors.white : Colors.black;
+      
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()..color = fillColor..style = PaintingStyle.fill,
+      );
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..color = borderColor
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0 * scale,
+      );
+    }
+
+    // Draw numbers
+    for (int ringNum = startRing; ringNum <= 9; ringNum++) {
+      final outerRadius = ringRadii[ringNum]!;
+      final innerRadius = ringRadii[ringNum + 1]!;
+      final midRadius = (outerRadius + innerRadius) / 2;
+      
+      final textColor = ringNum <= 6 ? Colors.black : Colors.white;
+
+      for (int angle in [270, 0, 90, 180]) {
+        final radians = angle * math.pi / 180;
+        final x = center.dx + midRadius * math.cos(radians);
+        final y = center.dy + midRadius * math.sin(radians);
+
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: ringNum.toString(),
+            style: TextStyle(
+              color: textColor,
+              fontSize: 12 * scale,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout();
+        textPainter.paint(
+          canvas,
+          Offset(x - textPainter.width / 2, y - textPainter.height / 2),
+        );
+      }
+    }
+
+    // Draw inner ten
+    canvas.drawCircle(
+      center,
+      innerTenRadius,
+      Paint()..color = Colors.black..style = PaintingStyle.fill,
+    );
+    canvas.drawCircle(
+      center,
+      innerTenRadius,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0 * scale,
+    );
+
+
+    // Draw shots with re-scaled positions
+    final pelletRadius = 5.6 / 2 * scale; // 5.6mm for .22 LR
+    final totalShots = shots.length;
+    
+    for (int i = 0; i < shots.length; i++) {
+      final shot = shots[i];
+      
+      final originalX = (shot['x'] ?? targetSize / 2) as double;
+      final originalY = (shot['y'] ?? targetSize / 2) as double;
+      
+      final originalCenter = targetSize / 2;
+      final offsetX = originalX - originalCenter;
+      final offsetY = originalY - originalCenter;
+      
+      // Apply zoom scale
+      final scaledOffsetX = offsetX * scaleRatio;
+      final scaledOffsetY = offsetY * scaleRatio;
+      
+      final position = Offset(
+        center.dx + scaledOffsetX,
+        center.dy + scaledOffsetY,
+      );
+      
+      // Opacity gradient for shot visibility
+      final opacity = totalShots > 1 
+          ? 0.65 + (i / (totalShots - 1)) * 0.35 
+          : 1.0;
+      
+      canvas.drawCircle(
+        position, 
+        pelletRadius, 
+        Paint()..color = Colors.red.withOpacity(opacity)..style = PaintingStyle.fill
+      );
+      
+      canvas.drawCircle(
+        position, 
+        pelletRadius,
+        Paint()
+          ..color = Colors.black.withOpacity(opacity)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.5 * scale
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
 
 class ReportPistolTargetPainter extends CustomPainter {
   final List<Map<String, dynamic>> shots;
@@ -3408,7 +3852,7 @@ class ReportRifleTargetPainter extends CustomPainter {
             text: ringNum.toString(),
             style: TextStyle(
               color: textColor,
-              fontSize: 2 * scale,
+              fontSize: 3 * scale,
               fontWeight: FontWeight.w600,
             ),
           ),
@@ -3457,6 +3901,408 @@ class ReportRifleTargetPainter extends CustomPainter {
           ..color = Colors.black.withOpacity(opacity)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 0.3 * scale,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+class ReportRifle3PTargetPainter extends CustomPainter {
+  final List<Map<String, dynamic>> shots;
+
+  ReportRifle3PTargetPainter({required this.shots});
+  final double targetSize = 280.0;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(targetSize / 2, targetSize / 2);
+
+    // Find minimum ring from shots (1–10)
+    int minRing = 10;
+    if (shots.isNotEmpty) {
+      for (var shot in shots) {
+        final score = (shot['score'] ?? 10.0) as double;
+        final ring = score.floor();
+        if (ring > 0 && ring < minRing) {
+          minRing = ring;
+        }
+      }
+    }
+
+    // Show two extra rings, but never below ring 1
+    final startRing = (minRing - 2).clamp(1, 10);
+
+    // 50m Rifle 3P ring diameters (mm)
+    final Map<int, double> ringDiameters = {
+      10: 10.4,
+      9: 26.4,
+      8: 42.4,
+      7: 58.4,
+      6: 74.4,
+      5: 90.4,
+      4: 106.4,
+      3: 122.4,
+      2: 138.4,
+      1: 154.4,
+    };
+
+    final outerDiameter = ringDiameters[startRing]!;
+
+    // Full target vs zoom scale
+    final originalScale = targetSize / 154.4; // full 1-ring
+    final scale = targetSize / outerDiameter; // zoomed to startRing
+    final scaleRatio = scale / originalScale;
+
+    // Radii in pixels
+    final Map<int, double> ringRadii = {};
+    ringDiameters.forEach((ring, diameter) {
+      ringRadii[ring] = (diameter / 2) * scale;
+    });
+
+    // ✅ NEW: Black area radius (112.4mm diameter - part of ring 3 to ring 10)
+    final blackAreaRadius = (112.4 / 2) * scale;
+
+    // ✅ Draw rings 1–3 FIRST (white with black borders) if in view
+    for (int ringNum = startRing; ringNum <= 3 && ringNum <= 10; ringNum++) {
+      final radius = ringRadii[ringNum]!;
+      
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()..color = Colors.white..style = PaintingStyle.fill,
+      );
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..color = Colors.black
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.5 * scale,
+      );
+    }
+
+    // ✅ Draw BLACK AREA (112.4mm - covers part of ring 3 to ring 10)
+    if (blackAreaRadius <= ringRadii[startRing]!) { // Only if black area visible
+      canvas.drawCircle(
+        center,
+        blackAreaRadius,
+        Paint()..color = Colors.black..style = PaintingStyle.fill,
+      );
+      canvas.drawCircle(
+        center,
+        blackAreaRadius,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.5 * scale,
+      );
+    }
+
+    // ✅ Draw rings 4–10 with WHITE borders (on black)
+    for (int ringNum = math.max(startRing, 4); ringNum <= 10; ringNum++) {
+      final radius = ringRadii[ringNum]!;
+      
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.5 * scale,
+      );
+    }
+
+    // ✅ Draw numbers 1–8 with SMART color (black on white, white on black)
+    for (int ringNum = startRing; ringNum <= 8; ringNum++) {
+      final outerRadius = ringRadii[ringNum]!;
+      final innerRadius = ringRadii[ringNum + 1]!;
+      final midRadius = (outerRadius + innerRadius) / 2;
+      
+      // ✅ Text color based on black area position
+      final textColor = (midRadius > blackAreaRadius) ? Colors.black : Colors.white;
+
+      for (int angle in [270, 0, 90, 180]) {
+        final radians = angle * math.pi / 180;
+        final x = center.dx + midRadius * math.cos(radians);
+        final y = center.dy + midRadius * math.sin(radians);
+
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: ringNum.toString(),
+            style: TextStyle(
+              color: textColor,
+              fontSize: 6 * scale,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout();
+        textPainter.paint(
+          canvas,
+          Offset(x - textPainter.width / 2, y - textPainter.height / 2),
+        );
+      }
+    }
+
+    // ✅ Center dot (INNER 10-ring: 5mm diameter white)
+    final centerDotRadius = (2.5 * scale).clamp(1.5, double.infinity);
+    canvas.drawCircle(
+      center,
+      centerDotRadius,
+      Paint()..color = Colors.white..style = PaintingStyle.fill,
+    );
+    canvas.drawCircle(
+      center,
+      centerDotRadius,
+      Paint()
+        ..color = Colors.black
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 0.3 * scale,
+    );
+
+    // Draw shots (re-scaled positions)
+    final pelletRadius = 5.6 / 2 * scale; // .22 LR
+    final totalShots = shots.length;
+
+    for (int i = 0; i < shots.length; i++) {
+      final shot = shots[i];
+
+      final originalX = (shot['x'] ?? targetSize / 2) as double;
+      final originalY = (shot['y'] ?? targetSize / 2) as double;
+
+      final originalCenter = targetSize / 2;
+      final offsetX = originalX - originalCenter;
+      final offsetY = originalY - originalCenter;
+
+      final scaledOffsetX = offsetX * scaleRatio;
+      final scaledOffsetY = offsetY * scaleRatio;
+
+      final position = Offset(
+        center.dx + scaledOffsetX,
+        center.dy + scaledOffsetY,
+      );
+
+      final opacity = totalShots > 1
+          ? 0.65 + (i / (totalShots - 1)) * 0.35
+          : 1.0;
+
+      canvas.drawCircle(
+        position,
+        pelletRadius,
+        Paint()
+          ..color = Colors.red.withOpacity(opacity)
+          ..style = PaintingStyle.fill,
+      );
+
+      canvas.drawCircle(
+        position,
+        pelletRadius,
+        Paint()
+          ..color = Colors.black.withOpacity(opacity)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.5 * scale,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => true; // ✅ Changed for dynamic shots
+}
+
+
+class ReportRapidFireTargetPainter extends CustomPainter {
+  final List<Map<String, dynamic>> shots;
+
+  ReportRapidFireTargetPainter({required this.shots});
+  final double targetSize = 280.0;
+  
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = Offset(targetSize / 2, targetSize / 2);
+    
+    // Calculate minimum ring from shots (only rings 5-10 exist)
+    int minRing = 10;
+    if (shots.isNotEmpty) {
+      for (var shot in shots) {
+        final score = (shot['score'] ?? 10.0) as double;
+        final ring = score.floor();
+        if (ring >= 5 && ring < minRing) {
+          minRing = ring;
+        }
+      }
+    }
+    
+    // ✅ Show TWO extra rings: one for pellet edge, one for safety margin
+    // But clamp to minimum ring 5 (since this target only has rings 5-10)
+    final startRing = (minRing - 2).clamp(5, 10);
+    
+    // ✅ 25m Rapid Fire Target - Ring DIAMETERS in mm
+    final Map<int, double> ringDiameters = {
+      10: 100.0,
+      9: 160.0,
+      8: 220.0,
+      7: 280.0,
+      6: 340.0,
+      5: 400.0,
+    };
+    
+    final outerDiameter = ringDiameters[startRing]!;
+    
+    // Calculate both scales
+    final originalScale = targetSize / 400.0; // Original full target scale
+    final scale = targetSize / outerDiameter; // Zoomed scale
+    final scaleRatio = scale / originalScale;
+    
+    // Convert diameters to radii in pixels
+    final Map<int, double> ringRadii = {};
+    ringDiameters.forEach((ring, diameter) {
+      ringRadii[ring] = (diameter / 2) * scale;
+    });
+    
+    final double innerTenRadius = (56.0 / 2.0) * scale;  // Inner 10 ring radius (50mm)
+
+    // ✅ Draw rings (startRing to 10) - ALL BLACK with WHITE borders
+    for (int ringNum = startRing; ringNum <= 10; ringNum++) {
+      final radius = ringRadii[ringNum]!;
+      
+      // Fill with black
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()..color = Colors.black..style = PaintingStyle.fill,
+      );
+      
+      // White border
+      canvas.drawCircle(
+        center,
+        radius,
+        Paint()
+          ..color = Colors.white
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.0 * scale,
+      );
+    }
+
+    // ✅ Draw numbers in WHITE (since background is black)
+    for (int ringNum = startRing; ringNum <= 9; ringNum++) {
+      final outerRadius = ringRadii[ringNum]!;
+      final innerRadius = ringRadii[ringNum + 1]!;
+      final midRadius = (outerRadius + innerRadius) / 2;
+
+      // Place numbers at 4 cardinal positions
+      for (int angle in [270, 0, 90, 180]) {
+        final radians = angle * math.pi / 180;
+        final x = center.dx + midRadius * math.cos(radians);
+        final y = center.dy + midRadius * math.sin(radians);
+
+        final textPainter = TextPainter(
+          text: TextSpan(
+            text: ringNum.toString(),
+            style: TextStyle(
+              color: Colors.white, // ✅ White text on black background
+              fontSize: 12 * scale,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          textDirection: TextDirection.ltr,
+        );
+        textPainter.layout();
+        textPainter.paint(
+          canvas,
+          Offset(x - textPainter.width / 2, y - textPainter.height / 2),
+        );
+      }
+    }
+final Paint linePaint = Paint()
+  ..color = Colors.white
+  ..strokeWidth = 2.5 * scale
+  ..style = PaintingStyle.stroke;
+
+// LEFT Line 2: Ring 7 OUTER edge → shortened inner end
+final ring7Radius = ringRadii[5]!;
+final innerGap = 95.0 * scale;  // Gap from center side (like Line 2)
+final leftInnerEndRadius = ring7Radius - innerGap;  // Inner stop point
+
+canvas.drawLine(
+  Offset(center.dx - ring7Radius, center.dy),  // START: Ring 7 outer edge
+  Offset(center.dx - leftInnerEndRadius, center.dy),  // END: Inner with gap
+  linePaint,
+);
+
+// RIGHT line: Full center to ring 5 outer
+// ✅ RIGHT LINE: Ring 5 OUTER edge → INNER (same Line 2 style)
+final ring5Radius = ringRadii[5]!;
+final rightInnerGap = 95.0 * scale;  // Same gap as left (adjust as needed)
+final rightInnerEndRadius = ring5Radius - rightInnerGap;
+
+canvas.drawLine(
+  Offset(center.dx + ring5Radius, center.dy),    // START: Ring 5 outer edge
+  Offset(center.dx + rightInnerEndRadius, center.dy),  // END: Inner with gap
+  linePaint,
+);
+
+
+    // ✅ Inner ten (solid black circle with white border)
+    canvas.drawCircle(
+      center,
+      innerTenRadius,
+      Paint()..color = Colors.black..style = PaintingStyle.fill,
+    );
+    canvas.drawCircle(
+      center,
+      innerTenRadius,
+      Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 1.0 * scale,
+    );
+
+
+    // ✅ Draw shots with re-scaled positions
+    final pelletRadius = 5.6 / 2 * scale; // 5.6mm pellet diameter for .22 LR
+    final totalShots = shots.length;
+    
+    for (int i = 0; i < shots.length; i++) {
+      final shot = shots[i];
+      
+      final originalX = (shot['x'] ?? targetSize / 2) as double;
+      final originalY = (shot['y'] ?? targetSize / 2) as double;
+      
+      final originalCenter = targetSize / 2;
+      final offsetX = originalX - originalCenter;
+      final offsetY = originalY - originalCenter;
+      
+      // Apply zoom scale
+      final scaledOffsetX = offsetX * scaleRatio;
+      final scaledOffsetY = offsetY * scaleRatio;
+      
+      final position = Offset(
+        center.dx + scaledOffsetX,
+        center.dy + scaledOffsetY,
+      );
+      
+      // Opacity gradient for shot visibility
+      final opacity = totalShots > 1 
+          ? 0.65 + (i / (totalShots - 1)) * 0.35 
+          : 1.0;
+      
+      // Draw pellet
+      canvas.drawCircle(
+        position, 
+        pelletRadius, 
+        Paint()..color = Colors.red.withOpacity(opacity)..style = PaintingStyle.fill
+      );
+      
+      // Draw white outline for visibility on black target
+      canvas.drawCircle(
+        position, 
+        pelletRadius,
+        Paint()
+          ..color = Colors.white.withOpacity(opacity * 0.8)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.5 * scale
       );
     }
   }

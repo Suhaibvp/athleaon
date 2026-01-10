@@ -1,14 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../services/connection_service.dart';
 import 'dart:math' as math;
 
-class HomeTab extends StatelessWidget {
+class HomeTab extends StatefulWidget {
   const HomeTab({super.key});
 
   @override
+  State<HomeTab> createState() => _HomeTabState();
+}
+
+class _HomeTabState extends State<HomeTab> {
+  final ConnectionService _connectionService = ConnectionService();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  @override
   Widget build(BuildContext context) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final firstName = currentUser?.displayName?.split(' ').first ?? 'User';
+
     return Scaffold(
       backgroundColor: const Color(0xFF1A1A1A),
       appBar: AppBar(
+        automaticallyImplyLeading: false,
         backgroundColor: const Color(0xFF1A1A1A),
         elevation: 0,
         title: Column(
@@ -23,7 +38,7 @@ class HomeTab extends StatelessWidget {
               ),
             ),
             Text(
-              'Welcome Judo',
+              'Welcome $firstName',
               style: TextStyle(
                 color: Colors.white.withOpacity(0.6),
                 fontSize: 12,
@@ -63,59 +78,60 @@ class HomeTab extends StatelessWidget {
                 ),
               ],
             ),
-            
+
             const SizedBox(height: 24),
-            
-            // Chart 1: Line Chart - Highest shots per day
+
+            // Chart 1: Line Chart - Highest shots per day (placeholder)
             _buildLineChartCard(
               title: 'Your Highest\nshots per day',
               value: '400',
               data: [30, 50, 40, 80, 120, 90, 150, 200],
               color: const Color(0xFFD32F2F),
             ),
-            
+
             const SizedBox(height: 16),
-            
-            // Chart 2: Bar Chart - Highest score
+
+            // Chart 2: Bar Chart - Highest score (placeholder)
             _buildBarChartCard(
               title: 'Your Highest\nscore',
               value: '1200',
               data: [200, 400, 600, 800, 900, 700, 850, 1000],
               color: const Color(0xFFD32F2F),
             ),
-            
+
             const SizedBox(height: 24),
-            
-            // Connected Coaches Section
+
+            // Connected Coaches Section - Real data from Firestore
             _buildConnectedCoaches(),
-            
-            const SizedBox(height: 24),
-            
-            // Start Session Button
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () {
-                  // TODO: Navigate to session creation
-                },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD32F2F),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text(
-                  'Start a Session',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-            
+
+            // const SizedBox(height: 24),
+
+            // // Start Session Button - Navigate to Sessions tab
+            // SizedBox(
+            //   width: double.infinity,
+            //   child: ElevatedButton(
+            //     onPressed: () {
+            //       // Navigate to Sessions tab (index 1 in bottom nav)
+            //       DefaultTabController.of(context).animateTo(1);
+            //     },
+            //     style: ElevatedButton.styleFrom(
+            //       backgroundColor: const Color(0xFFD32F2F),
+            //       padding: const EdgeInsets.symmetric(vertical: 16),
+            //       shape: RoundedRectangleBorder(
+            //         borderRadius: BorderRadius.circular(8),
+            //       ),
+            //     ),
+            //     child: const Text(
+            //       'Start a Session',
+            //       style: TextStyle(
+            //         fontSize: 16,
+            //         fontWeight: FontWeight.w600,
+            //         color: Colors.white,
+            //       ),
+            //     ),
+            //   ),
+            // ),
+
             const SizedBox(height: 20),
           ],
         ),
@@ -175,7 +191,7 @@ class HomeTab extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          
+
           // Line Chart
           SizedBox(
             height: 120,
@@ -184,9 +200,9 @@ class HomeTab extends StatelessWidget {
               color: color,
             ),
           ),
-          
+
           const SizedBox(height: 12),
-          
+
           // X-axis labels
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -237,7 +253,7 @@ class HomeTab extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 20),
-          
+
           // Simple bar chart visualization
           SizedBox(
             height: 120,
@@ -258,9 +274,9 @@ class HomeTab extends StatelessWidget {
               }).toList(),
             ),
           ),
-          
+
           const SizedBox(height: 12),
-          
+
           // X-axis labels
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -280,6 +296,8 @@ class HomeTab extends StatelessWidget {
   }
 
   Widget _buildConnectedCoaches() {
+    final currentUserId = _connectionService.currentUserId;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -294,71 +312,125 @@ class HomeTab extends StatelessWidget {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            Icon(
-              Icons.arrow_forward_ios,
-              color: Colors.white.withOpacity(0.5),
-              size: 16,
+            GestureDetector(
+              onTap: () {
+                // Navigate to Coaches tab (index 2 in bottom nav)
+                DefaultTabController.of(context).animateTo(2);
+              },
+              child: Icon(
+                Icons.arrow_forward_ios,
+                color: Colors.white.withOpacity(0.5),
+                size: 16,
+              ),
             ),
           ],
         ),
         const SizedBox(height: 16),
-        
-        // Coach list
-        ...List.generate(4, (index) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: Colors.grey[700],
-                  child: const Icon(Icons.person, color: Colors.white),
+
+        // Real coaches list from Firestore
+        StreamBuilder<QuerySnapshot>(
+          stream: _connectionService.getConnectedInstructors(currentUserId),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: CircularProgressIndicator(color: Color(0xFFD32F2F)),
+              );
+            }
+
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  child: Text(
+                    'No connected coaches yet',
+                    style: TextStyle(
+                      color: Colors.white.withOpacity(0.5),
+                      fontSize: 14,
+                    ),
+                  ),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Hari Prasath',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w500,
-                        ),
+              );
+            }
+
+            final connections = snapshot.data!.docs;
+
+            return Column(
+              children: connections.map((doc) {
+                final connection = doc.data() as Map<String, dynamic>;
+                final coachId = connection['coachId'] ?? '';
+
+                return FutureBuilder<Map<String, dynamic>?>(
+                  future: _connectionService.getUserProfile(coachId),
+                  builder: (context, coachSnapshot) {
+                    final coachData = coachSnapshot.data;
+                    final firstName = coachData?['firstName'] ?? 'Unknown';
+                    final lastName = coachData?['lastName'] ?? '';
+                    final fullName = '$firstName $lastName'.trim();
+                    final photoUrl = coachData?['photoUrl'];
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 24,
+                            backgroundColor: Colors.grey[700],
+                            backgroundImage:
+                                photoUrl != null ? NetworkImage(photoUrl) : null,
+                            child: photoUrl == null
+                                ? const Icon(Icons.person, color: Colors.white)
+                                : null,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  fullName,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                Text(
+                                  coachData?['email'] ?? '',
+                                  style: TextStyle(
+                                    color: Colors.white.withOpacity(0.5),
+                                    fontSize: 12,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withOpacity(0.2),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.shield,
+                              color: Colors.green,
+                              size: 20,
+                            ),
+                          ),
+                        ],
                       ),
-                      Text(
-                        '0012',
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.5),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.green.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.shield,
-                    color: Colors.green,
-                    size: 20,
-                  ),
-                ),
-              ],
-            ),
-          );
-        }),
+                    );
+                  },
+                );
+              }).toList(),
+            );
+          },
+        ),
       ],
     );
   }
 }
 
-// Custom Line Chart Widget
+// Custom Line Chart Widget (keep as-is)
 class LineChart extends StatelessWidget {
   final List<double> data;
   final Color color;
@@ -394,10 +466,7 @@ class LineChartPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
 
-    // Find max value for scaling
     final maxValue = data.reduce((a, b) => a > b ? a : b);
-    
-    // Calculate points
     final points = <Offset>[];
     for (int i = 0; i < data.length; i++) {
       final x = (size.width / (data.length - 1)) * i;
@@ -405,7 +474,6 @@ class LineChartPainter extends CustomPainter {
       points.add(Offset(x, y));
     }
 
-    // Draw gradient fill under the line
     final gradientPath = Path();
     gradientPath.moveTo(points.first.dx, size.height);
     for (final point in points) {
@@ -426,15 +494,13 @@ class LineChartPainter extends CustomPainter {
 
     canvas.drawPath(gradientPath, gradientPaint);
 
-    // Draw smooth curved line
     final path = Path();
     path.moveTo(points[0].dx, points[0].dy);
 
-    // Create smooth curve through points using cubic bezier
     for (int i = 0; i < points.length - 1; i++) {
       final p0 = points[i];
       final p1 = points[i + 1];
-      
+
       final controlPoint1 = Offset(
         p0.dx + (p1.dx - p0.dx) / 3,
         p0.dy,
@@ -443,7 +509,7 @@ class LineChartPainter extends CustomPainter {
         p0.dx + 2 * (p1.dx - p0.dx) / 3,
         p1.dy,
       );
-      
+
       path.cubicTo(
         controlPoint1.dx,
         controlPoint1.dy,
@@ -462,7 +528,6 @@ class LineChartPainter extends CustomPainter {
 
     canvas.drawPath(path, linePaint);
 
-    // Draw dots on data points
     for (final point in points) {
       canvas.drawCircle(
         point,
@@ -471,8 +536,7 @@ class LineChartPainter extends CustomPainter {
           ..color = color
           ..style = PaintingStyle.fill,
       );
-      
-      // White inner dot
+
       canvas.drawCircle(
         point,
         2,
@@ -482,7 +546,6 @@ class LineChartPainter extends CustomPainter {
       );
     }
 
-    // Draw grid lines (optional)
     final gridPaint = Paint()
       ..color = Colors.white.withOpacity(0.05)
       ..strokeWidth = 1;

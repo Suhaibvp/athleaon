@@ -14,6 +14,8 @@ import 'dart:typed_data';
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart' hide TextDirection; // ✅ Hide the conflicting class
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 // class Shot {
 //   Offset position;
 //   Duration shotTime;
@@ -42,6 +44,7 @@ class RifleShootingScreen extends StatefulWidget {
   final List<PhotoData>? existingImages; 
   final List<ShotGroup>?existingShotGroups;
   final List<SessionNote>? existingNotes;
+  final List<Map<String, dynamic>>? existingSightingShots;
   const RifleShootingScreen({
     super.key,
     required this.sessionId,
@@ -53,6 +56,7 @@ class RifleShootingScreen extends StatefulWidget {
     this.existingImages,
     this.existingShotGroups,
     this.existingNotes,
+    this.existingSightingShots,
   });
 
   @override
@@ -61,6 +65,13 @@ class RifleShootingScreen extends StatefulWidget {
 
 
 class _RifleShootingScreenState extends State<RifleShootingScreen> {
+bool _isCoach = false;
+    bool _isSightingMode = true; // Start in sighting mode
+  List<Shot> _sightingShots = []; // Separate list for sighting shots
+  Duration _sightingTime = Duration.zero; // Separate time for sighting
+  double _sightingTotalScore = 0.0; // Separate score for sighting
+
+
   Timer? _timer;
   Timer? _sessionTimer;
   
@@ -93,12 +104,13 @@ List<PhotoData> _photos = [];
   void initState() {
     super.initState();
      _shotGroups.clear();
-    _loadExistingShots();
+    loadExistingShots();
+    _checkUserRole();
           if (widget.existingNotes != null && widget.existingNotes!.isNotEmpty) {
       sessionNotes = List<SessionNote>.from(widget.existingNotes!);
     }
       if (_shots.isEmpty) {
-    _addNewShot();
+    addNewShot();
     _shotPlaced = true;
   }
   }
@@ -109,6 +121,16 @@ List<PhotoData> _photos = [];
     _sessionTimer?.cancel();
     super.dispose();
   }
+
+  Future<void> _checkUserRole() async {
+  final currentUser = FirebaseAuth.instance.currentUser;
+  if (currentUser != null) {
+    final isCoach = await _isCoachRole(currentUser.uid);
+    setState(() {
+      _isCoach = isCoach;
+    });
+  }
+}
 // ✅ NEW: Zoom In function
 void _zoomIn() {
   setState(() {
@@ -132,6 +154,40 @@ void _zoomOut() {
   });
 }
 
+  void _switchToActualSession() {
+    setState(() {
+      _isSightingMode = false;
+      
+      // Reset everything for actual session
+      _shots.clear();
+      _currentShotIndex = -1;
+      _shotGroups.clear();
+      _currentShotTime = Duration.zero;
+      _totalSessionTime = Duration.zero;
+      _accumulatedSessionTime = Duration.zero;
+      
+      // Stop all timers
+      _timer?.cancel();
+      _sessionTimer?.cancel();
+      _isTimerRunning = false;
+      _isSessionActive = false;
+      _sessionStarted = false;
+      
+      // Reset zoom
+      _zoomLevel = 1.0;
+      _zoomOffset = Offset.zero;
+      
+      // Add first shot for actual session
+      addNewShot();
+      _shotPlaced = true;
+    });
+    _startSessionTimer();
+  }
+
+    double get _calculateSightingScore {
+    return _sightingShots.fold(0.0, (sum, shot) => sum + shot.score);
+  }
+
 // ✅ NEW: Adjust position for zoom level
 Offset _adjustPositionForZoom(Offset localPosition) {
   if (_zoomLevel == 1.0) return localPosition;
@@ -142,11 +198,10 @@ Offset _adjustPositionForZoom(Offset localPosition) {
   return center + adjustedOffset + _zoomOffset;
 }
 
-void _loadExistingShots() {
+void loadExistingShots() {
   if (widget.existingShots != null && widget.existingShots!.isNotEmpty) {
     setState(() {
       _shotGroups.clear();
-      
       _shots = widget.existingShots!.map((shotData) {
         return Shot(
           position: Offset(shotData['x'], shotData['y']),
@@ -158,43 +213,45 @@ void _loadExistingShots() {
         );
       }).toList();
 
-      // ✅ Restore session time from LAST group's groupTime
-      if (widget.existingShotGroups != null && widget.existingShotGroups!.isNotEmpty) {
+      // Restore session time
+      if (widget.existingShotGroups != null &&
+          widget.existingShotGroups!.isNotEmpty) {
         final lastGroup = widget.existingShotGroups!.last;
         _accumulatedSessionTime = lastGroup.groupTime;
         _totalSessionTime = _accumulatedSessionTime;
-        
-        print('✅ Restored session time from group ${lastGroup.groupNumber}: ${_accumulatedSessionTime.inSeconds}s');
-      } else {
-        _accumulatedSessionTime = Duration.zero;
-        _totalSessionTime = Duration.zero;
       }
 
-      // ✅ CRITICAL FIX: DON'T load existing shot groups yet
-      // They will be recreated from the shots array during confirmCurrentShot()
-      // This prevents duplicate groups
-      
-      // However, we DO need to populate shotGroups with COMPLETE groups that won't change
-      // Calculate how many confirmed shots we have
-      final confirmedCount = widget.existingShots!.length;
-      final completeGroupCount = confirmedCount ~/ 10;
-      
-      // Only add complete groups that are fully loaded from existing shots
-      if (widget.existingShotGroups != null && widget.existingShotGroups!.isNotEmpty) {
-        // Add only the complete groups (first completeGroupCount groups)
-        for (int i = 0; i < completeGroupCount; i++) {
-          final existingGroup = widget.existingShotGroups!
-              .firstWhere((g) => g.groupNumber == (i + 1), orElse: () => null as ShotGroup);
-          
-          if (existingGroup != null) {
-            _shotGroups.add(existingGroup);
-          }
-        }
-        print('✅ Loaded ${_shotGroups.length} complete groups from existing data');
+      // Load existing images
+      if (widget.existingImages != null && widget.existingImages!.isNotEmpty) {
+        _photos.addAll(widget.existingImages!);
+      }
+
+      // Load missed shots
+      if (widget.existingMissedShots != null &&
+          widget.existingMissedShots!.isNotEmpty) {
+        _missedShots = List<MissedShot>.from(widget.existingMissedShots!);
+      }
+
+      // NEW: Load sighting shots
+      if (widget.existingSightingShots != null &&
+          widget.existingSightingShots!.isNotEmpty) {
+        _sightingShots = widget.existingSightingShots!.map((shotData) {
+          return Shot(
+            position: Offset(shotData['x'], shotData['y']),
+            shotTime: Duration(milliseconds: shotData['time']),
+            isConfirmed: true,
+            feedback: Set<String>.from(shotData['feedback'] ?? []),
+            score: (shotData['score'] ?? 0.0).toDouble(),
+            ringNumber: shotData['ring'] ?? 0,
+          );
+        }).toList();
+        
+        // If sighting shots exist, we're NOT in sighting mode (we've already completed sighting)
+        _isSightingMode = false;
       }
 
       // Add new shot for editing
-      final exactCenter = Offset(_targetSize / 2, _targetSize / 2);
+      final exactCenter = Offset(targetSize / 2, targetSize / 2);
       _shots.add(Shot(
         position: exactCenter,
         shotTime: Duration.zero,
@@ -203,26 +260,36 @@ void _loadExistingShots() {
         score: 0.0,
         ringNumber: 0,
       ));
-      
       _currentShotIndex = _shots.length - 1;
       _shotPlaced = true;
     });
-  }
-
-  // Load missed shots
-  if (widget.existingMissedShots != null && widget.existingMissedShots!.isNotEmpty) {
-    _missedShots = List<MissedShot>.from(widget.existingMissedShots!);
   } else {
-    _missedShots = [];
-  }
-
-  // Load existing images
-  if (widget.existingImages != null && widget.existingImages!.isNotEmpty) {
-    setState(() {
-      _photos.addAll(widget.existingImages!);
-    });
+    // NEW: Check if there are existing sighting shots (editing session with only sighting)
+    if (widget.existingSightingShots != null &&
+        widget.existingSightingShots!.isNotEmpty) {
+      setState(() {
+        _sightingShots = widget.existingSightingShots!.map((shotData) {
+          return Shot(
+            position: Offset(shotData['x'], shotData['y']),
+            shotTime: Duration(milliseconds: shotData['time']),
+            isConfirmed: true,
+            feedback: Set<String>.from(shotData['feedback'] ?? []),
+            score: (shotData['score'] ?? 0.0).toDouble(),
+            ringNumber: shotData['ring'] ?? 0,
+          );
+        }).toList();
+        
+        // Start in sighting mode to add more sighting shots
+        _isSightingMode = true;
+        
+        // Add new sighting shot
+        addNewShot();
+        _shotPlaced = true;
+      });
+    }
   }
 }
+
 
 
 Widget _buildTooltipWrapper({
@@ -290,29 +357,30 @@ DateTime? _shotStartTime;
   }
 
 // Replace _toggleTimer with:
-  void _toggleTimer() {
-    if (!_sessionStarted) {
-      _toggleSession(); // Auto-start session if not started
+  void toggleTimer() {
+    if (!_sessionStarted && !_isSightingMode) {
+      _toggleSession(); // Auto-start session if not started (only in actual mode)
     }
 
     setState(() {
       _isTimerRunning = !_isTimerRunning;
-
+      
       if (_isTimerRunning) {
-        // Start shot timer from current shot's existing time
         _shotStartTime = DateTime.now();
         _timer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
           setState(() {
-            // Calculate elapsed time for THIS shot only
             final elapsed = DateTime.now().difference(_shotStartTime!);
             
-            // For NEW shots, start from zero
-            // For EXISTING shots being edited, preserve their time (but this is rare)
-            _currentShotTime = elapsed;
-
-            // Update the current shot's time
-            if (_currentShotIndex >= 0 && _currentShotIndex < _shots.length) {
-              _shots[_currentShotIndex].shotTime = _currentShotTime;
+            if (_isSightingMode) {
+              _sightingTime = elapsed;
+              if (_currentShotIndex >= 0 && _currentShotIndex < _sightingShots.length) {
+                _sightingShots[_currentShotIndex].shotTime = _sightingTime;
+              }
+            } else {
+              _currentShotTime = elapsed;
+              if (_currentShotIndex >= 0 && _currentShotIndex < _shots.length) {
+                _shots[_currentShotIndex].shotTime = _currentShotTime;
+              }
             }
           });
         });
@@ -321,6 +389,7 @@ DateTime? _shotStartTime;
       }
     });
   }
+
 
 // Update _toggleSession to handle pause/resume:
   void _toggleSession() {
@@ -343,52 +412,71 @@ DateTime? _shotStartTime;
     });
   }
 
-  void _addNewShot() {
+  void addNewShot() {
     setState(() {
-      _shots.add(Shot(
-        position: Offset(targetSize / 2, targetSize / 2),
-        shotTime: _currentShotTime,
-      ));
-      _currentShotIndex = _shots.length - 1;
+      if (_isSightingMode) {
+        _sightingShots.add(Shot(
+          position: Offset(targetSize / 2, targetSize / 2),
+          shotTime: _sightingTime,
+        ));
+        _currentShotIndex = _sightingShots.length - 1;
+      } else {
+        _shots.add(Shot(
+          position: Offset(targetSize / 2, targetSize / 2),
+          shotTime: _currentShotTime,
+        ));
+        _currentShotIndex = _shots.length - 1;
+      }
     });
   }
 
-void _confirmCurrentShot() {
-  if (_currentShotIndex >= 0 && _currentShotIndex < _shots.length) {
-    final shot = _shots[_currentShotIndex];
+  void confirmCurrentShot() {
+    if (_currentShotIndex < 0) return;
+    
+    final currentList = _isSightingMode ? _sightingShots : _shots;
+    if (_currentShotIndex >= currentList.length) return;
+    
+    final shot = currentList[_currentShotIndex];
     
     if (!shot.isConfirmed) {
       _calculateScore(shot);
+      
       setState(() {
         shot.isConfirmed = true;
+        _printShotData(shot, _currentShotIndex + 1);
+        
+        // Only create shot groups in actual session mode
+        if (!_isSightingMode) {
+          if (_shots.length % 10 == 0) {
+            final groupNumber = _shots.length ~/ 10;
+            final startIndex = (groupNumber - 1) * 10;
+            final endIndex = groupNumber * 10;
+            final groupShots = _shots.sublist(startIndex, endIndex);
+            final groupTime = _totalSessionTime;
+            
+            _shotGroups.add(ShotGroup(
+              groupNumber: groupNumber,
+              groupTime: groupTime,
+              shots: groupShots,
+            ));
+          }
+        }
+        
+        // Create next shot
+        addNewShot();
+        _shotPlaced = true;
+        
+        if (_isSightingMode) {
+          _sightingTime = Duration.zero;
+        } else {
+          _currentShotTime = Duration.zero;
+        }
+        
+        _zoomLevel = 1.0;
+        _zoomOffset = Offset.zero;
       });
-      _printShotData(shot, _currentShotIndex + 1);
-
-      if (_shots.length % 10 == 0) {
-        final groupNumber = _shots.length ~/ 10;
-        final startIndex = (groupNumber - 1) * 10;
-        final endIndex = groupNumber * 10;
-        final groupShots = _shots.sublist(startIndex, endIndex);
-        final groupTime = _totalSessionTime;
-
-        _shotGroups.add(ShotGroup(
-          groupNumber: groupNumber,
-          groupTime: groupTime,
-          shots: groupShots,
-        ));
-      }
-
-      // ✅ Create next shot immediately
-      _addNewShot();
-      _shotPlaced = true;
-      _currentShotTime = Duration.zero;
-      
-      // _zoomLevel = 1.0;
-      // _zoomOffset = Offset.zero;
     }
   }
-}
-
 
   void _createRemainingGroup() {
     if (_shots.isEmpty) return;
@@ -555,43 +643,53 @@ void _calculateScore(Shot shot) {
     print('==================\n');
   }
 
-void _goToPreviousShot() {
-  if (_shots.isEmpty) return;
+  void goToPreviousShot() {
+    final currentList = _isSightingMode ? _sightingShots : _shots;
+    if (currentList.isEmpty) return;
 
-  setState(() {
-    if (_currentShotIndex > 0) {
-      _currentShotIndex--;
+    setState(() {
+      if (_currentShotIndex > 0) {
+        _currentShotIndex--;
+        
+        if (_isSightingMode) {
+          _sightingTime = _sightingShots[_currentShotIndex].shotTime;
+        } else {
+          _currentShotTime = _shots[_currentShotIndex].shotTime;
+        }
+        _shotPlaced = true;
+      }
+    });
+  }
 
-      // Reset timer and currentShotTime from selected shot
-      _currentShotTime = _shots[_currentShotIndex].shotTime;
-      _shotPlaced = true;
-    }
-  });
-}
 
-void _goToNextShot() {
-  if (_shots.isEmpty) return;
+  void goToNextShot() {
+    final currentList = _isSightingMode ? _sightingShots : _shots;
+    if (currentList.isEmpty) return;
 
-  setState(() {
-    if (_currentShotIndex < _shots.length - 1) {
-      _currentShotIndex++;
+    setState(() {
+      if (_currentShotIndex < currentList.length - 1) {
+        _currentShotIndex++;
+        
+        if (_isSightingMode) {
+          _sightingTime = _sightingShots[_currentShotIndex].shotTime;
+        } else {
+          _currentShotTime = _shots[_currentShotIndex].shotTime;
+        }
+        _shotPlaced = true;
+      }
+    });
+  }
 
-      // Reset timer and currentShotTime from selected shot
-      _currentShotTime = _shots[_currentShotIndex].shotTime;
-      _shotPlaced = true;
-    }
-  });
-}
-List<Shot> getVisibleShots() {
-  if (_shots.isEmpty) return [];
+  List<Shot> getVisibleShots() {
+    final currentList = _isSightingMode ? _sightingShots : _shots;
+    if (currentList.isEmpty) return [];
 
-  final int batchNumber = _currentShotIndex ~/ widget.shotsPerTarget;
+    final int batchNumber = _currentShotIndex ~/ widget.shotsPerTarget;
+    final int start = batchNumber * widget.shotsPerTarget;
+    final int end = (start + widget.shotsPerTarget).clamp(0, currentList.length);
 
-  final int start = batchNumber * widget.shotsPerTarget;
-  final int end = (start + widget.shotsPerTarget).clamp(0, _shots.length);
-
-  return _shots.sublist(start, end);
-}
+    return currentList.sublist(start, end);
+  }
 
 
 
@@ -616,23 +714,22 @@ String _formatDurationWithoutMillis(Duration duration) {
   }
 }
 
-void _updateShotPosition(Offset localPosition) {
-  if (_justCreatedShot) return;
-
-  if (_currentShotIndex >= 0 && _currentShotIndex < _shots.length) {
-    // ✅ Adjust for zoom
-    final adjustedPosition = _adjustPositionForZoom(localPosition);
+  void updateShotPosition(Offset localPosition) {
+    if (_justCreatedShot) return;
     
-    final clampedX = adjustedPosition.dx.clamp(0.0, _targetSize);
-    final clampedY = adjustedPosition.dy.clamp(0.0, _targetSize);
+    final currentList = _isSightingMode ? _sightingShots : _shots;
+    if (_currentShotIndex < 0 || _currentShotIndex >= currentList.length) return;
+
+    final adjustedPosition = _adjustPositionForZoom(localPosition);
+    final clampedX = adjustedPosition.dx.clamp(0.0, targetSize);
+    final clampedY = adjustedPosition.dy.clamp(0.0, targetSize);
     final clampedPosition = Offset(clampedX, clampedY);
 
     setState(() {
-      _shots[_currentShotIndex].position = clampedPosition;
-      _calculateScore(_shots[_currentShotIndex]);
+      currentList[_currentShotIndex].position = clampedPosition;
+      _calculateScore(currentList[_currentShotIndex]);
     });
   }
-}
 
 
   void _onPanEnd() {
@@ -641,20 +738,47 @@ void _updateShotPosition(Offset localPosition) {
     });
   }
 
-void _toggleFeedback(String feedbackId) {
-  if (_currentShotIndex >= 0 && _currentShotIndex < _shots.length) {
+void toggleFeedback(String feedbackId) {
+  // Handle both sighting and actual session
+  if (_isSightingMode) {
+    // SIGHTING MODE
+    if (_currentShotIndex < 0 || _currentShotIndex >= _sightingShots.length) return;
+    
     setState(() {
-      final shot = _shots[_currentShotIndex];
+      print("feedback clicked - sighting mode");
+      final shot = _sightingShots[_currentShotIndex];
+      
       if (shot.feedback.contains(feedbackId)) {
         shot.feedback.remove(feedbackId);
       } else {
         shot.feedback.add(feedbackId);
       }
       
-      // ✅ NEW: If dry or cross is selected, reset pellet
+      // If dry or cross is selected, prepare for reset
       if (feedbackId == 'dry' || feedbackId == 'cross') {
         if (shot.feedback.contains(feedbackId)) {
-          // User just selected dry/cross - prepare for reset
+          _shotPlaced = false;
+        }
+      }
+    });
+  } else {
+    // ACTUAL SESSION MODE
+    if (_currentShotIndex < 0 || _currentShotIndex >= _shots.length) return;
+    
+    setState(() {
+      print("feedback clicked - actual session");
+      final shot = _shots[_currentShotIndex];
+      
+      if (shot.feedback.contains(feedbackId)) {
+        shot.feedback.remove(feedbackId);
+      } else {
+        shot.feedback.add(feedbackId);
+      }
+      
+      // If dry or cross is selected, prepare for reset
+      if (feedbackId == 'dry' || feedbackId == 'cross') {
+        if (shot.feedback.contains(feedbackId)) {
+          _shotPlaced = false;
         }
       }
     });
@@ -664,6 +788,16 @@ void _toggleFeedback(String feedbackId) {
 
   // ✅ Save with session timer
 Future<void> _saveSessionWithNotes() async {
+    if (_isSightingMode) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please switch to actual session before saving'),
+          backgroundColor: Color(0xFFD32F2F),
+        ),
+      );
+      return;
+    }
+
   final notesController = TextEditingController();
 
   final result = await showDialog<String?>(
@@ -680,7 +814,6 @@ Future<void> _saveSessionWithNotes() async {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Optional: Show count of existing notes
           if (sessionNotes.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -742,34 +875,55 @@ Future<void> _saveSessionWithNotes() async {
   );
 
   if (result != null) {
-    // Add new note to list if not empty
     if (result.trim().isNotEmpty) {
       sessionNotes.add(SessionNote(
         note: result.trim(),
         timestamp: DateTime.now(),
       ));
     }
-    
-    await _saveSession(result, _photos);
+
+    // ✅ Show global saving loader
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const _SavingSessionDialog(),
+    );
+
+    await saveSession(result, _photos);
+
+    // _saveSession will close the dialog right before navigation
   }
 }
 
-Future<void> _saveSession(String finalNotes, [List<PhotoData>? photos]) async {
-  _sessionTimer?.cancel();
-  _timer?.cancel();
 
-  _createRemainingGroup();
+// ✅ Save with auto-share
+// ✅ Save with auto-share (Coach/Student role check)
+  Future<void> saveSession(String finalNotes, List<PhotoData>? photos) async {
+    _sessionTimer?.cancel();
+    _timer?.cancel();
+    _createRemainingGroup();
 
-  final sessionService = SessionService();
-  
-  // Save session shots first
+    final sessionService = SessionService();
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final isCoach = await _isCoachRole(currentUser!.uid);
+
     final confirmedShots = _shots.where((shot) => shot.isConfirmed).toList();
-    
+
     List<Map<String, dynamic>> allShots = confirmedShots.map((shot) => {
       'x': shot.position.dx,
       'y': shot.position.dy,
       'score': shot.score,
-      'time': shot.shotTime.inMilliseconds, // Individual shot time
+      'time': shot.shotTime.inMilliseconds,
+      'feedback': shot.feedback.toList(),
+      'ring': shot.ringNumber,
+    }).toList();
+
+    // NEW: Add sighting shots as a separate list
+    List<Map<String, dynamic>> sightingData = _sightingShots.map((shot) => {
+      'x': shot.position.dx,
+      'y': shot.position.dy,
+      'score': shot.score,
+      'time': shot.shotTime.inMilliseconds,
       'feedback': shot.feedback.toList(),
       'ring': shot.ringNumber,
     }).toList();
@@ -781,86 +935,138 @@ Future<void> _saveSession(String finalNotes, [List<PhotoData>? photos]) async {
     allMissedShots.addAll(
       _missedShots.skip(widget.existingMissedShots?.length ?? 0).map((missed) => missed.toJson())
     );
- List<Map<String, dynamic>> allNotesData = sessionNotes.map((note) => note.toJson()).toList();
+
+    List<Map<String, dynamic>> allNotesData = sessionNotes.map((note) => note.toJson()).toList();
+
     await sessionService.saveSessionShots(
       sessionId: widget.sessionId,
-      shots: allShots, // ✅ ALL shots, not just new ones
-      totalScore: _calculateTotalScore(),
-      totalTime: _totalSessionTime, // ✅ Accumulated session time
+      shots: allShots,
+      totalScore: calculateTotalScore(),
+      totalTime: _totalSessionTime,
       notes: finalNotes,
       notesList: allNotesData,
       shotGroups: _shotGroups.map((group) => {
         'groupNumber': group.groupNumber,
-        'groupTime': group.groupTime.inMilliseconds, // ✅ Each group's accumulated time
+        'groupTime': group.groupTime.inMilliseconds,
         'shotCount': group.shots.length,
       }).toList(),
       missedShots: allMissedShots,
+      sightingShots: sightingData, // NEW: Pass sighting data
+      sightingTotalScore: _calculateSightingScore, // NEW: Pass sighting score
     );
-final ValueNotifier<int> uploadProgress = ValueNotifier(0);
-  // Show loading dialog while uploading images
-  if (photos != null && photos.isNotEmpty) {
-showDialog(
-  context: context,
-  barrierDismissible: false,
-  builder: (context) => _ImageUploadProgressDialog(
-    totalImages: photos.length,
-    uploadProgress: uploadProgress, // <-- REQUIRED ARGUMENT!
-  ),
-);
 
-    try {
-final newPhotosToSave = filterNewPhotos(widget.existingImages??[], photos);
-
-await sessionService.saveSessionImages(
-  sessionId: widget.sessionId,
-  photos: newPhotosToSave,
-  onProgress: (current, total) {
-    _updateUploadProgress(current, total);
-  },
-);
-
-      Navigator.of(context).pop(); // Close loading dialog
-    } catch (e) {
-      Navigator.of(context).pop(); // Close loading dialog on error
-      // Show error message
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error uploading images: $e')),
+    // UPLOAD IMAGES ONLY FOR COACHES
+    if (isCoach && photos != null && photos.isNotEmpty) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) => _ImageUploadProgressDialog(
+          totalImages: photos.length,
+          uploadProgress: _uploadProgress,
+        ),
       );
-      return;
+
+      try {
+        await sessionService.saveSessionImages(
+          sessionId: widget.sessionId,
+          photos: photos,
+          onProgress: (current, total) {
+            _updateUploadProgress(current, total);
+          },
+        );
+        Navigator.of(context).pop();
+      } catch (e) {
+        Navigator.of(context).pop();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error uploading images: $e')),
+        );
+      }
+    } else if (!isCoach && photos != null && photos.isNotEmpty) {
+      print('Student: Images saved locally, no upload');
     }
+
+    // AUTO-SHARE ONLY FOR COACHES
+    if (isCoach) {
+      try {
+        final sessionDoc = await FirebaseFirestore.instance
+            .collection('training_sessions')
+            .doc(widget.sessionId)
+            .get();
+
+        if (sessionDoc.exists) {
+          final sessionData = sessionDoc.data()!;
+          final studentId = sessionData['studentId'] as String?;
+
+          if (studentId != null && studentId.isNotEmpty) {
+            print('COACH: Auto-sharing RIFLE session with student $studentId');
+            await sessionService.autoShareWithStudent(widget.sessionId, studentId);
+            print('RIFLE session auto-shared with student');
+          }
+        }
+      } catch (e) {
+        print('Auto-share failed: $e');
+      }
+    } else {
+      print('STUDENT: RIFLE session saved locally only, no sharing');
+    }
+
+    // Navigate to report
+    final reportData = SessionReportData(
+      sessionName: widget.sessionName,
+      studentName: widget.studentName!,
+      shots: allShots,
+      totalScore: calculateTotalScore(),
+      totalTime: _totalSessionTime,
+      eventType: 'Rifle', // RIFLE SPECIFIC
+      notes: finalNotes,
+      notesList: sessionNotes,
+      shotGroups: _shotGroups,
+      missedShots: allMissedShots.isNotEmpty
+          ? allMissedShots.map((m) => MissedShot(
+                shotNumber: m['shotNumber'],
+                feedback: Set<String>.from(m['feedback']),
+                shotTime: Duration(milliseconds: m['time']),
+              )).toList()
+          : null,
+      sightingShots: sightingData, // NEW: Pass to report
+      sightingTotalScore: _calculateSightingScore, // NEW: Pass to report
+    );
+
+    Navigator.of(context, rootNavigator: true).pop();
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SessionReportScreen(
+          reportData: reportData,
+          sessionId: widget.sessionId,
+          shotsPerTarget: widget.shotsPerTarget,
+          photos: photos ?? [],
+        ),
+      ),
+    );
   }
 
-  final reportData = SessionReportData(
-    sessionName: widget.sessionName,
-    studentName: widget.studentName??'',
-    shots: allShots,
-    totalScore: _calculateTotalScore(),
-    totalTime: _totalSessionTime,
-    eventType: 'Rifle',
-    notes: finalNotes,
-    notesList: sessionNotes,
-    shotGroups: _shotGroups,
-    missedShots: allMissedShots.isNotEmpty 
-        ? allMissedShots.map((m) => MissedShot(
-            shotNumber: m['shotNumber'],
-            feedback: Set<String>.from(m['feedback']),
-            shotTime: Duration(milliseconds: m['time']),
-          )).toList()
-        : null,
-  );
 
-  Navigator.pushReplacement(
-    context,
-    MaterialPageRoute(
-      builder: (context) => SessionReportScreen(
-        reportData: reportData,
-        sessionId: widget.sessionId,
-        shotsPerTarget: widget.shotsPerTarget,
-        photos: photos ?? [],
-      ),
-    ),
-  );
+// ✅ ADD THIS HELPER METHOD (at bottom of class - SAME for both screens)
+Future<bool> _isCoachRole(String userId) async {
+  try {
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(userId)
+        .get();
+    
+    if (userDoc.exists) {
+      final role = userDoc.data()?['role']?.toString().toLowerCase() ?? 'student';
+      return role == 'coach';
+    }
+    return false; // Default to student
+  } catch (e) {
+    print('❌ Error checking role: $e');
+    return false; // Default to student on error
+  }
 }
+
+
 // Assume you have a way to identify existing images uniquely, e.g., by 'id' or hash
 // For demo, assuming PhotoData has some unique 'id' field or you can compare by imageBytes
 
@@ -877,8 +1083,9 @@ void _updateUploadProgress(int current, int total) {
   _uploadProgress.value = current;
 }
 
-  double _calculateTotalScore() {
-    return _shots.fold(0.0, (sum, shot) => sum + shot.score);
+  double calculateTotalScore() {
+    final currentList = _isSightingMode ? _sightingShots : _shots;
+    return currentList.fold(0.0, (sum, shot) => sum + shot.score);
   }
 
   Widget _buildScoreBox(String score) {
@@ -910,7 +1117,7 @@ Widget _buildCompactFeedbackButton(String iconId, String label, Shot? currentSho
       child: ShootingFeedbackIcons.buildFeedbackButton(
         iconId: iconId,
         isSelected: currentShot?.feedback.contains(iconId) ?? false,
-        onPressed: () => _toggleFeedback(iconId),
+        onPressed: () => toggleFeedback(iconId),
       ),
     ),
   );
@@ -1064,38 +1271,40 @@ String? _imageNote; // Keep note associated with selected image
 
 
 
-  @override
-  Widget build(BuildContext context) {
-    final currentShot = _currentShotIndex >= 0 && _currentShotIndex < _shots.length
-        ? _shots[_currentShotIndex]
-        : null;
+@override
+Widget build(BuildContext context) {
+  final currentList = _isSightingMode ? _sightingShots : _shots;
+  final currentShot = _currentShotIndex >= 0 && _currentShotIndex < currentList.length
+      ? currentList[_currentShotIndex]
+      : null;
 
   final screenHeight = MediaQuery.of(context).size.height;
   final appBarHeight = kToolbarHeight;
   final statusBarHeight = MediaQuery.of(context).padding.top;
   final availableHeight = screenHeight - appBarHeight - statusBarHeight;
-    final responsiveTargetSize = math.min(_targetSize, availableHeight * 0.35);
-    return Scaffold(
-      backgroundColor: const Color(0xFF1A1A1A),
-appBar: AppBar(
+  final responsiveTargetSize = math.min(targetSize, availableHeight * 0.35);
+
+  return Scaffold(
+    backgroundColor: const Color(0xFF1A1A1A),
+    appBar: AppBar(
       backgroundColor: const Color(0xFF1A1A1A),
       elevation: 0,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back, color: Colors.white),
         onPressed: () => Navigator.pop(context),
       ),
-      // ✅ NEW: Title with Pistol badge
       title: Row(
         children: [
+          // Sighting badge or Rifle badge
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFFD32F2F),
+              color: _isSightingMode ? Colors.orange : const Color(0xFFD32F2F),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Text(
-              'Riffle',
-              style: TextStyle(
+            child: Text(
+              _isSightingMode ? 'Sighting' : 'Rifle',
+              style: const TextStyle(
                 color: Colors.white,
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
@@ -1103,49 +1312,62 @@ appBar: AppBar(
             ),
           ),
           const SizedBox(width: 12),
-          // Session Time
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text(
-                'Session Time',
-                style: TextStyle(color: Colors.grey, fontSize: 10),
-              ),
-              Text(
-                _formatDurationWithoutMillis(_totalSessionTime),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
+          // Session Time (hide in sighting mode)
+          if (!_isSightingMode)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  'Session Time',
+                  style: TextStyle(color: Colors.grey, fontSize: 10),
                 ),
-              ),
-
-            ],
-          ),
+                Text(
+                  _formatDurationWithoutMillis(_totalSessionTime),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
       actions: [
-        // ✅ Begin/End button
-        OutlinedButton(
-          onPressed: _toggleSession,
-          style: OutlinedButton.styleFrom(
-            foregroundColor: _isSessionActive
-                ? const Color(0xFFD32F2F)
-                : Colors.grey,
-            side: BorderSide(
-              color: _isSessionActive
-                  ? const Color(0xFFD32F2F)
-                  : Colors.grey,
+        // Sighting mode switch button (only show in sighting mode)
+        if (_isSightingMode)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ElevatedButton.icon(
+              onPressed: _switchToActualSession,
+              icon: const Icon(Icons.play_arrow, size: 18),
+              label: const Text('Start Session'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.green,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+              ),
             ),
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            minimumSize: const Size(0, 0),
           ),
-          child: Text(
-            _isSessionActive ? 'End' : 'Begin',
-            style: const TextStyle(fontSize: 11),
+        // Begin/End button (only in actual session)
+        if (!_isSightingMode)
+          OutlinedButton(
+            onPressed: _toggleSession,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: _isSessionActive ? const Color(0xFFD32F2F) : Colors.grey,
+              side: BorderSide(
+                color: _isSessionActive ? const Color(0xFFD32F2F) : Colors.grey,
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+              minimumSize: const Size(0, 0),
+            ),
+            child: Text(
+              _isSessionActive ? 'End' : 'Begin',
+              style: const TextStyle(fontSize: 11),
+            ),
           ),
-        ),
         const SizedBox(width: 8),
         // Help icon
         IconButton(
@@ -1162,323 +1384,359 @@ appBar: AppBar(
         ),
       ],
     ),
-
-body: Column(
-  children: [
-    // ✅ Scrollable content area
-    Expanded(
-      child: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Column(
-            children: [
-              const SizedBox(height: 8),
-              
-              // Target
-              Center(
-                child: GestureDetector(
-                  onPanUpdate: (details) {
-                    if (_shotPlaced) {
-                      final RenderBox? renderBox =
-                          _targetKey.currentContext?.findRenderObject() as RenderBox?;
-                      if (renderBox != null) {
-                        final localPosition = renderBox.globalToLocal(details.globalPosition);
-                        _updateShotPosition(localPosition);
-                      }
-                    }
-                  },
-                  onTapDown: (details) {
-                    if (_shotPlaced) {
-                      final RenderBox? renderBox =
-                          _targetKey.currentContext?.findRenderObject() as RenderBox?;
-                      if (renderBox != null) {
-                        final localPosition = renderBox.globalToLocal(details.globalPosition);
-                        _updateShotPosition(localPosition);
-                      }
-                    }
-                  },
-                  child: Container(
-                    key: _targetKey,
-                    width: targetSize,
-                    height: targetSize,
-                    child: ClipOval(
-                      child: Transform.scale(
-                        scale: _zoomLevel,
-                        child: Stack(
-                          children: [
-                            CustomPaint(
-                              size: Size(targetSize, targetSize),
-                              painter: RifleTargetPainter(
-                                shots: getVisibleShots(),
-                                currentShotIndex:  _currentShotIndex % widget.shotsPerTarget,
-                                targetSize: _targetSize,
-                                shotsPerBatch: widget.shotsPerTarget,
+    body: Column(
+      children: [
+        // Scrollable content area
+        Expanded(
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Column(
+                children: [
+                  const SizedBox(height: 8),
+                  
+                  // Target with Sighting Triangle Indicator
+                  Center(
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Main Target
+                        GestureDetector(
+                          onPanUpdate: (details) {
+                            if (_shotPlaced) {
+                              final RenderBox? renderBox =
+                                  _targetKey.currentContext?.findRenderObject() as RenderBox?;
+                              if (renderBox != null) {
+                                final localPosition = renderBox.globalToLocal(details.globalPosition);
+                                updateShotPosition(localPosition);
+                              }
+                            }
+                          },
+                          onTapDown: (details) {
+                            if (_shotPlaced) {
+                              final RenderBox? renderBox =
+                                  _targetKey.currentContext?.findRenderObject() as RenderBox?;
+                              if (renderBox != null) {
+                                final localPosition = renderBox.globalToLocal(details.globalPosition);
+                                updateShotPosition(localPosition);
+                              }
+                            }
+                          },
+                          child: Container(
+                            key: _targetKey,
+                            width: targetSize,
+                            height: targetSize,
+                            child: ClipOval(
+                              child: Transform.scale(
+                                scale: _zoomLevel,
+                                child: Stack(
+                                  children: [
+                                    CustomPaint(
+                                      size: Size(targetSize, targetSize),
+                                      painter: RifleTargetPainter(
+                                        shots: getVisibleShots(),
+                                        currentShotIndex: _currentShotIndex % widget.shotsPerTarget,
+                                        targetSize: targetSize,
+                                        shotsPerBatch: widget.shotsPerTarget,
+                                      ),
+                                    ),
+                                    CustomPaint(
+                                      size: Size(targetSize, targetSize),
+                                      painter: BorderPainter(),
+                                    ),
+                                  ],
+                                ),
                               ),
                             ),
-                            CustomPaint(
-                              size: Size(targetSize, targetSize),
-                              painter: BorderPainter(),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
+                        
+                        // NEW: Sighting Triangle Indicator (only visible in sighting mode)
+                        if (_isSightingMode)
+                          Positioned(
+                            top: 0,
+                            right: 0,
+                            child: CustomPaint(
+                              size: const Size(60, 60),
+                              painter: SightingTrianglePainter(),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
-                ),
-              ),
-              
-              const SizedBox(height: 8),
-              _buildTooltipWrapper(
-  label: 'Add Image',
-  alignment: Alignment.topCenter,
-  child: IconButton(
-    icon: const Icon(Icons.camera_alt, color: Colors.white, size: 28),
-    onPressed: _showImageOptionDialog,
-    padding: const EdgeInsets.all(6),
-    constraints: const BoxConstraints(),
-  ),
-),
 
-              // Zoom buttons
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    // Zoom Out button with left padding
-                    Padding(
-                      padding: const EdgeInsets.only(left: 30),
-                      child: _buildTooltipWrapper(
-                        label: 'Zoom Out',
-                        alignment: Alignment.topCenter,
-                        child: IconButton(
-                          icon: const Icon(Icons.zoom_out, color: Colors.white, size: 24),
-                          onPressed: _zoomLevel > _minZoom ? _zoomOut : null,
-                          padding: const EdgeInsets.all(6),
-                          constraints: const BoxConstraints(),
+                  const SizedBox(height: 8),
+
+                  _buildTooltipWrapper(
+                    label: 'Add Image',
+                    alignment: Alignment.topCenter,
+                    child: IconButton(
+                      icon: const Icon(Icons.camera_alt, color: Colors.white, size: 28),
+                      onPressed: _showImageOptionDialog,
+                      padding: const EdgeInsets.all(6),
+                      constraints: const BoxConstraints(),
+                    ),
+                  ),
+
+                  // Zoom buttons + Scores
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      // Zoom Out button with left padding
+                      Padding(
+                        padding: const EdgeInsets.only(left: 30),
+                        child: _buildTooltipWrapper(
+                          label: 'Zoom Out',
+                          alignment: Alignment.topCenter,
+                          child: IconButton(
+                            icon: const Icon(Icons.zoom_out, color: Colors.white, size: 24),
+                            onPressed: _zoomLevel > _minZoom ? _zoomOut : null,
+                            padding: const EdgeInsets.all(6),
+                            constraints: const BoxConstraints(),
+                          ),
                         ),
                       ),
-                    ),
 
-                    // Current score display with tooltip wrapper
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                        child: _buildTooltipWrapper(
-                          label: 'Current',
-                          alignment: Alignment.topCenter,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2A2A2A),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFFD32F2F)),
-                            ),
-                            child: Center(
-                              child: Text(
-                                currentShot?.score.toStringAsFixed(1) ?? '0.0',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
+                      // Current score display with tooltip wrapper
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                          child: _buildTooltipWrapper(
+                            label: 'Current',
+                            alignment: Alignment.topCenter,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF2A2A2A),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFFD32F2F)),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  currentShot?.score.toStringAsFixed(1) ?? '0.0',
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
 
-                    // Total score display with tooltip wrapper
-                    Expanded(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                        child: _buildTooltipWrapper(
-                          label: 'Total',
-                          alignment: Alignment.topCenter,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(vertical: 8),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF2A2A2A),
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: const Color(0xFFD32F2F)),
-                            ),
-                            child: Center(
-                              child: Text(
-                                _calculateTotalScore().toStringAsFixed(1),
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
+                      // Total score display with tooltip wrapper
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 8.0),
+                          child: _buildTooltipWrapper(
+                            label: 'Total',
+                            alignment: Alignment.topCenter,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(vertical: 8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF2A2A2A),
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(color: const Color(0xFFD32F2F)),
+                              ),
+                              child: Center(
+                                child: Text(
+                                  calculateTotalScore().toStringAsFixed(1),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                               ),
                             ),
                           ),
                         ),
                       ),
-                    ),
 
-                    // Zoom In button with right padding
-                    Padding(
-                      padding: const EdgeInsets.only(right: 30),
-                      child: _buildTooltipWrapper(
-                        label: 'Zoom In',
-                        alignment: Alignment.topCenter,
-                        child: IconButton(
-                          icon: const Icon(Icons.zoom_in, color: Colors.white, size: 24),
-                          onPressed: _zoomLevel < _maxZoom ? _zoomIn : null,
-                          padding: const EdgeInsets.all(6),
-                          constraints: const BoxConstraints(),
+                      // Zoom In button with right padding
+                      Padding(
+                        padding: const EdgeInsets.only(right: 30),
+                        child: _buildTooltipWrapper(
+                          label: 'Zoom In',
+                          alignment: Alignment.topCenter,
+                          child: IconButton(
+                            icon: const Icon(Icons.zoom_in, color: Colors.white, size: 24),
+                            onPressed: _zoomLevel < _maxZoom ? _zoomIn : null,
+                            padding: const EdgeInsets.all(6),
+                            constraints: const BoxConstraints(),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const SizedBox(height: 10),
+
+                   Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  _buildTooltipWrapper(
+                    label: 'Previous',
+                    alignment: Alignment.topCenter,
+                    child: IconButton(
+                      icon: const Icon(Icons.chevron_left, color: Colors.white, size: 26),
+                      onPressed: currentList.isNotEmpty ? goToPreviousShot : null,
+                      padding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  _buildTooltipWrapper(
+                    label: 'Shot #',
+                    alignment: Alignment.topCenter,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2A2A2A),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFD32F2F)),
+                      ),
+                      child: Text(
+                        '${_currentShotIndex + 1} / ${currentList.length}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
                         ),
                       ),
                     ),
-                  ],
-                ),
-              
-              const SizedBox(height: 10),
-              Container(
-      color: const Color(0xFF1A1A1A),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Navigation (Previous, Shot #, Next)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              _buildTooltipWrapper(
-                label: 'Previous',
-                alignment: Alignment.topCenter,
-                child: IconButton(
-                  icon: const Icon(Icons.chevron_left, color: Colors.white, size: 26),
-                  onPressed: _shots.isNotEmpty ? _goToPreviousShot : null,
-                  padding: EdgeInsets.zero,
-                ),
-              ),
-              const SizedBox(width: 12),
-              _buildTooltipWrapper(
-                label: 'Shot #',
-                alignment: Alignment.topCenter,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF2A2A2A),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFD32F2F)),
                   ),
-                  child: Text(
-                    '${_currentShotIndex >= 0 ? _currentShotIndex + 1 : _shots.length}',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              _buildTooltipWrapper(
-                label: 'Next',
-                alignment: Alignment.topCenter,
-                child: IconButton(
-                  icon: const Icon(Icons.chevron_right, color: Colors.white, size: 26),
-                  onPressed: () {
-                    if (_currentShotIndex >= 0 && _currentShotIndex < _shots.length) {
-                      final currentShot = _shots[_currentShotIndex];
-                      if (currentShot.feedback.contains('dry') || currentShot.feedback.contains('cross')) {
-                        setState(() {
-                          _missedShots.add(MissedShot(
-                            shotNumber: _currentShotIndex + 1,
-                            feedback: Set<String>.from(currentShot.feedback),
-                            shotTime: _currentShotTime,
-                          ));
-                          _shots.removeAt(_currentShotIndex);
-                          _addNewShot();
-                          _shotPlaced = true;
-                          _currentShotTime = Duration.zero;
-                          _zoomLevel = 1.0;
-                          _zoomOffset = Offset.zero;
-                        });
-                        return;
-                      }
-                      if (currentShot.isConfirmed) {
-                        _goToNextShot();
-                      } else {
-                        _confirmCurrentShot();
-                      }
-                    }
-                  },
-                  padding: EdgeInsets.zero,
-                ),
-              ),
-            ],
-          ),
+                  const SizedBox(width: 12),
+                  _buildTooltipWrapper(
+                    label: 'Next',
+                    alignment: Alignment.topCenter,
+                    child: IconButton(
+                      icon: const Icon(Icons.chevron_right, color: Colors.white, size: 26),
+                      onPressed: () {
+                        if (_currentShotIndex >= 0 && _currentShotIndex < currentList.length) {
+                          final currentShot = currentList[_currentShotIndex];
+                          if (currentShot.feedback.contains('dry') ||
+                              currentShot.feedback.contains('cross')) {
+                            setState(() {
+                              if (_isSightingMode) {
+                                _missedShots.add(MissedShot(
+                                  shotNumber: _currentShotIndex + 1,
+                                  feedback: Set<String>.from(currentShot.feedback),
+                                  shotTime: _sightingTime,
+                                ));
+                                _sightingShots.removeAt(_currentShotIndex);
+                              } else {
+                                _missedShots.add(MissedShot(
+                                  shotNumber: _currentShotIndex + 1,
+                                  feedback: Set<String>.from(currentShot.feedback),
+                                  shotTime: _currentShotTime,
+                                ));
+                                _shots.removeAt(_currentShotIndex);
+                              }
+                              addNewShot();
+                              _shotPlaced = true;
+                              
+                              if (_isSightingMode) {
+                                _sightingTime = Duration.zero;
+                              } else {
+                                _currentShotTime = Duration.zero;
+                              }
+                            });
+                            return;
+                          }
 
-          const SizedBox(height: 10),
-
-          // Timer controls (Reset, Shot Time, Start/Stop Timer)
-          Row(
-            children: [
-              Expanded(
-                child: _buildTooltipWrapper(
-                  label: 'Reset',
-                  alignment: Alignment.topCenter,
-                  child: OutlinedButton(
-                    onPressed: () {
-                      setState(() {
-                        _currentShotTime = Duration.zero;
-                        _isTimerRunning = false;
-                        _timer?.cancel();
-                        if (_shots.isNotEmpty && _currentShotIndex >= 0 && _currentShotIndex < _shots.length) {
-                          _shots[_currentShotIndex].feedback.clear();
+                          if (currentShot.isConfirmed) {
+                            goToNextShot();
+                          } else {
+                            confirmCurrentShot();
+                          }
                         }
-                      });
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFFD32F2F),
-                      side: const BorderSide(color: Color(0xFFD32F2F)),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      },
+                      padding: EdgeInsets.zero,
                     ),
-                    child: const Text('Reset', style: TextStyle(fontSize: 13)),
                   ),
-                ),
+                ],
               ),
-              const SizedBox(width: 10),
-              _buildTooltipWrapper(
-                label: 'Shot Time',
-                alignment: Alignment.topCenter,
-                child: Text(
-                  _formatDurationWithMillis(_currentShotTime),
-                  style: const TextStyle(
-                    color: Color(0xFFD32F2F),
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: _buildTooltipWrapper(
-                  label: 'Start Timer',
-                  alignment: Alignment.topCenter,
-                  child: ElevatedButton(
-                    onPressed: _toggleTimer,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFD32F2F),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+
+              const SizedBox(height: 10),
+
+              // Timer controls (Reset, Shot Time, Start/Stop Timer)
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildTooltipWrapper(
+                      label: 'Reset',
+                      alignment: Alignment.topCenter,
+                      child: OutlinedButton(
+                        onPressed: () {
+                          setState(() {
+                            if (_isSightingMode) {
+                              _sightingTime = Duration.zero;
+                            } else {
+                              _currentShotTime = Duration.zero;
+                            }
+                            _isTimerRunning = false;
+                            _timer?.cancel();
+                            
+                            if (currentList.isNotEmpty &&
+                                _currentShotIndex >= 0 &&
+                                _currentShotIndex < currentList.length) {
+                              currentList[_currentShotIndex].feedback.clear();
+                            }
+                          });
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFD32F2F),
+                          side: const BorderSide(color: Color(0xFFD32F2F)),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        child: const Text('Reset', style: TextStyle(fontSize: 13)),
+                      ),
                     ),
+                  ),
+                  const SizedBox(width: 10),
+                  _buildTooltipWrapper(
+                    label: 'Shot Time',
+                    alignment: Alignment.topCenter,
                     child: Text(
-                      _isTimerRunning ? 'Stop' : 'Start',
-                      style: const TextStyle(color: Colors.white, fontSize: 13),
+                      _isSightingMode
+                          ? _formatDurationWithMillis(_sightingTime)
+                          : _formatDurationWithMillis(_currentShotTime),
+                      style: const TextStyle(
+                        color: Color(0xFFD32F2F),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _buildTooltipWrapper(
+                      label: 'Start Timer',
+                      alignment: Alignment.topCenter,
+                      child: ElevatedButton(
+                        onPressed: toggleTimer,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFD32F2F),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                        child: Text(
+                          _isTimerRunning ? 'Stop' : 'Start',
+                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ],
-      ),
-    ),
-              // Feedback buttons
+
+              const SizedBox(height: 10),
+
+              // Feedback buttons - Only show for coaches
+              if (!_isCoach)
+
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
@@ -1488,77 +1746,100 @@ body: Column(
                 ),
                 child: Column(
                   children: [
+                    // Row 1
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: [
-                          _buildCompactFeedbackButton('movement', 'Body Movement', currentShot),
-                          _buildCompactFeedbackButton('stand', 'Standing', currentShot),
-                          _buildCompactFeedbackButton('sitting', 'Sitting', currentShot),
-                          _buildCompactFeedbackButton('talk_with_friends', 'Interaction with coach', currentShot),
-                          _buildCompactFeedbackButton('random_shoot', 'Weapon Movement', currentShot),
-                           _buildCompactFeedbackButton('grip', 'GRIP', currentShot),
+                          _buildCompactFeedbackButton('balance', 'Balance', currentShot),
+                          _buildCompactFeedbackButton('npa', 'Natural Point of Aim', currentShot),
+                          _buildCompactFeedbackButton('breathing', 'Breathing', currentShot),
+                          _buildCompactFeedbackButton('preparation', 'Preparation', currentShot),
+                          _buildCompactFeedbackButton('trigger_release', 'Trigger Release', currentShot),
+                          _buildCompactFeedbackButton('timing', 'Timing', currentShot),
                         ],
                       ),
                     ),
                     const SizedBox(height: 6),
+                    // Row 2
                     SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
                       child: Row(
                         children: [
-                          _buildCompactFeedbackButton('shoot_tick', 'Perfect Shot', currentShot),
-                          _buildCompactFeedbackButton('tr', 'Trigger', currentShot),
-                          _buildCompactFeedbackButton('ft', 'Follow Through', currentShot),
-                          _buildCompactFeedbackButton('lh', 'Long Hold', currentShot),
-                          _buildCompactFeedbackButton('dry', 'Dry', currentShot),
+                          _buildCompactFeedbackButton('ft', 'Follow Through', currentShot),//
+                          _buildCompactFeedbackButton('long_aim', 'Long Aim', currentShot),
                           _buildCompactFeedbackButton('cross', 'Cancel', currentShot),
+                          _buildCompactFeedbackButton('shoot_tick', 'Good Shot', currentShot),//
+                          _buildCompactFeedbackButton('distraction', 'Distraction', currentShot),
+                          _buildCompactFeedbackButton('dry', 'Dry Fire', currentShot),//
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    // Row 3
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          _buildCompactFeedbackButton('rest', 'Rest', currentShot),
+                          _buildCompactFeedbackButton('coach_feedback', 'Coach Feedback', currentShot),
+                          _buildCompactFeedbackButton('rifle_recoil', 'Rifle Recoil', currentShot),
+                          _buildCompactFeedbackButton('reaction', 'Reaction to Result', currentShot),
+                          _buildCompactFeedbackButton('talk_with_friends', 'Interaction with Coach', currentShot),//
+                          _buildCompactFeedbackButton('stand', 'Standing', currentShot),
                         ],
                       ),
                     ),
                   ],
                 ),
               ),
-              
-              const SizedBox(height: 16),
-            ],
-          ),
-        ),
-      ),
-    ),
-    
-    // ✅ PINNED bottom section
-    Container(
-      color: const Color(0xFF1A1A1A),
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // ✅ Navigation (Previous/Next/Shot#)
 
-          
-          // ✅ Save button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _saveSessionWithNotes,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFD32F2F),
-                padding: const EdgeInsets.symmetric(vertical: 14),
-              ),
-              child: const Text(
-                'Save',
-                style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.w600),
+
+              const SizedBox(height: 16),
+                ],
               ),
             ),
           ),
-        ],
-      ),
-    ),
-  ],
-),
+        ),
 
-    );
-  }
+        // PINNED bottom section
+        Container(
+          color: const Color(0xFF1A1A1A),
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Navigation (Previous, Shot #, Next)
+             
+
+              // Save button (disabled in sighting mode)
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _isSightingMode ? null : _saveSessionWithNotes,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: _isSightingMode ? Colors.grey : const Color(0xFFD32F2F),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  child: const Text(
+                    'Save',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+
 }
 
 
@@ -1853,6 +2134,36 @@ class _ImageUploadProgressDialog extends StatelessWidget {
             },
           ),
         ],
+      ),
+    );
+  }
+}
+class _SavingSessionDialog extends StatelessWidget {
+  const _SavingSessionDialog();
+
+  @override
+  Widget build(BuildContext context) {
+    return WillPopScope(
+      onWillPop: () async => false, // block back
+      child: Dialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(20),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: const [
+              CircularProgressIndicator(color: Color(0xFFD32F2F)),
+              SizedBox(width: 16),
+              Expanded(
+                child: Text(
+                  'Saving session, please wait...',
+                  style: TextStyle(color: Colors.white, fontSize: 14),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

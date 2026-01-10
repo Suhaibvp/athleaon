@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">ShotMetrix</string>
+
+    <!-- From Settings → Basic → App ID -->
+    <string name="facebook_app_id">1774963903201140</string>
+
+    <!-- Protocol scheme = fb + App ID -->
+    <string name="fb_login_protocol_scheme">fb1774963903201140</string>
+    <string name="facebook_client_token">0debbd0ac9f47a66d2f7f6c6bffa7710</string>
+</resources>
