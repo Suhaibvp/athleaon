@@ -8,13 +8,13 @@ workflows:
     environment:
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.example.myshoot
+        bundle_identifier: com.athleon.shotmetrix
       flutter: stable
       xcode: latest
       cocoapods: default
       vars:
-        BUNDLE_ID: "com.example.myshoot"
-        APP_STORE_APP_ID: 6757655496
+        BUNDLE_ID: "com.athleon.shotmetrix"
+        APP_STORE_APP_ID: 6755712389
     
     scripts:
       - name: Set up keychain
