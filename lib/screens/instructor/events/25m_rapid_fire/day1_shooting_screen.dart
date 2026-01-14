@@ -15,52 +15,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'rapid_session_report.dart';
 import '../../../../models/precision_shot_group.dart';
+import '../../../../services/shot_detection_service.dart';
+import 'package:crop_your_image/crop_your_image.dart';
+import 'dart:typed_data';
 
-// /// Shot model with environmental conditions
-// class PrecisionShot {
-//   Offset position;
-//   Duration shotTime;
-//   bool isConfirmed;
-//   Set<String> feedback;
-//   double score;
-//   int ringNumber;
-
-//   // Environmental conditions
-//   String? light; // Bright, Medium, Low
-//   String? wind; // N, NE, E, SE, S, SW, W, NW, NONE
-//   String? climate; // Sunny, Cloudy, Rainy, Foggy
-
-//   // NEW: store section / group name for each shot
-//   String? groupName;
-
-//   PrecisionShot({
-//     required this.position,
-//     required this.shotTime,
-//     this.isConfirmed = false,
-//     Set<String>? feedback,
-//     this.score = 0.0,
-//     this.ringNumber = 0,
-//     this.light,
-//     this.wind,
-//     this.climate,
-//     this.groupName,
-//   }) : feedback = feedback ?? {};
-// }
-
-/// Shot Group model for Precision includes environmental data
-// class PrecisionShotGroup {
-//   final int groupNumber;
-//   final Duration groupTime;
-//   final List<Map<String, dynamic>> shots;
-  
-
-//   PrecisionShotGroup({
-//     required this.groupNumber,
-//     required this.groupTime,
-//     required this.shots,
-    
-//   });
-// }
 
 class Day1ShootingScreen extends StatefulWidget {
   final String sessionId;
@@ -1915,6 +1873,351 @@ void _startRetryForGroup(int groupIndex) {
   );
 }
 
+// Add these imports at the top of your file
+
+
+// Add this state variable in your Day1ShootingScreenState class
+final _cropController = CropController();
+Uint8List? _imageForCrop;
+bool _showCropView = false;
+
+Future<void> _analyzeTargetImage() async {
+  try {
+    // Step 1: Pick image from gallery
+    final picked = await ImagePicker().pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1920,
+      maxHeight: 1920,
+      imageQuality: 85,
+    );
+    
+    if (picked == null) return;
+    
+    // Step 2: Load image bytes for cropping
+    final imageBytes = await picked.readAsBytes();
+    
+    setState(() {
+      _imageForCrop = imageBytes;
+      _showCropView = true;
+    });
+    
+    // Show crop dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => Dialog(
+        backgroundColor: const Color(0xFF2A2A2A),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Crop Target Area',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Container(
+                height: 400,
+                child: Crop(
+                  image: _imageForCrop!,
+                  controller: _cropController,
+                  onCropped: (croppedImage) {
+                    Navigator.pop(context);
+                    _processCroppedImage(croppedImage);
+                  },
+                  aspectRatio: null, // Free aspect ratio
+                  initialSize: 0.8,
+                  withCircleUi: false,
+                  baseColor: const Color(0xFF1A1A1A),
+                  maskColor: Colors.black.withOpacity(0.7),
+                  radius: 0,
+                  cornerDotBuilder: (size, edgeAlignment) => const DotControl(
+                    color: Color(0xFFD32F2F),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      setState(() {
+                        _showCropView = false;
+                        _imageForCrop = null;
+                      });
+                    },
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  ),
+                  ElevatedButton(
+                    onPressed: () {
+                      _cropController.crop();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD32F2F),
+                    ),
+                    child: const Text(
+                      'Crop & Analyze',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    ).then((_) {
+      setState(() {
+        _showCropView = false;
+        _imageForCrop = null;
+      });
+    });
+    
+  } catch (e) {
+    print('Error picking image: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error: ${e.toString()}'),
+        backgroundColor: const Color(0xFFD32F2F),
+      ),
+    );
+  }
+}
+
+Future<void> _processCroppedImage(Uint8List croppedBytes) async {
+  try {
+    // Show loading dialog
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const Dialog(
+        backgroundColor: Color(0xFF2A2A2A),
+        child: Padding(
+          padding: EdgeInsets.all(20),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFD32F2F)),
+              ),
+              SizedBox(width: 20),
+              Text(
+                'Analyzing target...',
+                style: TextStyle(color: Colors.white),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    
+    // Save cropped image temporarily
+    final tempDir = await getTemporaryDirectory();
+    final tempPath = '${tempDir.path}/cropped_target_${DateTime.now().millisecondsSinceEpoch}.jpg';
+    final tempFile = File(tempPath);
+    await tempFile.writeAsBytes(croppedBytes);
+    
+    // Analyze the cropped image WITH visualization
+    final detectionService = ShotDetectionService();
+    final result = await detectionService.detectShotsWithVisualization(tempFile);
+    
+    // Clean up temp file
+    await tempFile.delete();
+    
+    // Close loading dialog
+    Navigator.of(context).pop();
+    
+    // Print results
+    print('========== TARGET ANALYSIS RESULTS ==========');
+    print('Total shots detected: ${result.shots.length}');
+    for (int i = 0; i < result.shots.length; i++) {
+      print('Shot ${i + 1}: ${result.shots[i]}');
+    }
+    print('============================================');
+    
+    // Show visualization dialog
+    _showVisualizationDialog(result);
+    
+  } catch (e) {
+    if (Navigator.canPop(context)) {
+      Navigator.of(context).pop();
+    }
+    
+    print('Error analyzing target: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Error: ${e.toString()}'),
+        backgroundColor: const Color(0xFFD32F2F),
+        duration: const Duration(seconds: 3),
+      ),
+    );
+  }
+}
+
+void _showVisualizationDialog(DetectionResult result) {
+  showDialog(
+    context: context,
+    builder: (context) => Dialog(
+      backgroundColor: const Color(0xFF2A2A2A),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        constraints: BoxConstraints(
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Detected ${result.shots.length} Objects',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Blue=small, Green=medium, Yellow=large\nRed dots = centers',
+              style: TextStyle(color: Colors.white70, fontSize: 11),
+            ),
+            const SizedBox(height: 16),
+            
+            // Original with detections
+            const Text(
+              'Detected Objects:',
+              style: TextStyle(color: Colors.greenAccent, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.3,
+              ),
+              child: InteractiveViewer(
+                panEnabled: true,
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Image.memory(result.visualizedImage, fit: BoxFit.contain),
+              ),
+            ),
+            
+            const SizedBox(height: 16),
+            
+            // What the algorithm sees (mask)
+            const Text(
+              'What Algorithm Sees (bright pixels):',
+              style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.2,
+              ),
+              child: InteractiveViewer(
+                panEnabled: true,
+                minScale: 0.5,
+                maxScale: 4.0,
+                child: Image.memory(result.processedImage, fit: BoxFit.contain),
+              ),
+            ),
+            
+            const SizedBox(height: 8),
+            
+            // Shot list
+            if (result.shots.isNotEmpty)
+              Expanded(
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: result.shots.length,
+                  itemBuilder: (context, index) {
+                    final shot = result.shots[index];
+                    return Text(
+                      '${index + 1}. ${shot.toString()}',
+                      style: const TextStyle(color: Colors.white70, fontSize: 11),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+
+void _showDetectionResults(List<ShotPosition> shots) {
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: const Color(0xFF2A2A2A),
+      title: const Text(
+        'Detection Results',
+        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+      ),
+      content: SizedBox(
+        width: double.maxFinite,
+        height: 400,
+        child: ListView.builder(
+          shrinkWrap: true,
+          itemCount: shots.length,
+          itemBuilder: (context, index) {
+            final shot = shots[index];
+            return Card(
+              color: const Color(0xFF1A1A1A),
+              margin: const EdgeInsets.only(bottom: 8),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: const Color(0xFFD32F2F),
+                  child: Text(
+                    '${index + 1}',
+                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                title: Text(
+                  'Position: (${shot.x.toStringAsFixed(1)}, ${shot.y.toStringAsFixed(1)})',
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  'Radius: ${shot.radius.toStringAsFixed(1)}px',
+                  style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text(
+            'Close',
+            style: TextStyle(color: Color(0xFFD32F2F), fontWeight: FontWeight.bold),
+          ),
+        ),
+      ],
+    ),
+  );
+}
 
 
   @override
@@ -2115,67 +2418,80 @@ child: Text(
                       ),
                     ),
                     const SizedBox(height: 8),
-// In the build method, update the row with camera icon:
+                  // In the build method, update the row with camera icon:
 
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const SizedBox(width: 120),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
                           children: [
-                            const SizedBox(width: 120),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // NEW: Malfunction button
-                                if (!isSightingMode)
-                                  buildTooltipWrapper(
-                                    label: 'Gun Malfunction',
-                                    alignment: Alignment.topCenter,
-                                    child: IconButton(
-                                      icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
-                                      onPressed: _handleMalfunction,
-                                      padding: const EdgeInsets.all(6),
-                                      constraints: const BoxConstraints(),
-                                    ),
-                                  ),
-                                const SizedBox(width: 12),
-                                buildTooltipWrapper(
-                                  label: 'Add Image',
-                                  alignment: Alignment.topCenter,
-                                  child: IconButton(
-                                    icon: const Icon(Icons.camera_alt, color: Colors.white),
-                                    onPressed: showImageOptionDialog,
-                                    padding: const EdgeInsets.all(6),
-                                    constraints: const BoxConstraints(),
-                                  ),
+                            // NEW: Malfunction button
+                            if (!isSightingMode)
+                              buildTooltipWrapper(
+                                label: 'Gun Malfunction',
+                                alignment: Alignment.topCenter,
+                                child: IconButton(
+                                  icon: const Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                                  onPressed: _handleMalfunction,
+                                  padding: const EdgeInsets.all(6),
+                                  constraints: const BoxConstraints(),
                                 ),
-                              ],
+                              ),
+                            const SizedBox(width: 12),
+                            // NEW: Shot Analysis button (CV feature)
+                            buildTooltipWrapper(
+                              label: 'Analyze Target',
+                              alignment: Alignment.topCenter,
+                              child: IconButton(
+                                icon: const Icon(Icons.analytics_outlined, color: Colors.purple),
+                                onPressed: _analyzeTargetImage,
+                                padding: const EdgeInsets.all(6),
+                                constraints: const BoxConstraints(),
+                              ),
                             ),
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                buildSmallIndicatorButton(
-                                  label: getLightIcon(),
-                                  color: Colors.amber,
-                                  onTap: showLightSelector,
-                                ),
-                                const SizedBox(width: 8),
-                                buildSmallIndicatorButton(
-                                  label: getWindDirectionIcon(),
-                                  color: Colors.blue,
-                                  onTap: showWindDirectionSelector,
-                                ),
-                                const SizedBox(width: 8),
-                                buildSmallIndicatorButton(
-                                  label: getClimateIcon(),
-                                  color: Colors.green,
-                                  onTap: showClimateSelector,
-                                ),
-                              ],
+                            const SizedBox(width: 12),
+                            buildTooltipWrapper(
+                              label: 'Add Image',
+                              alignment: Alignment.topCenter,
+                              child: IconButton(
+                                icon: const Icon(Icons.camera_alt, color: Colors.white),
+                                onPressed: showImageOptionDialog,
+                                padding: const EdgeInsets.all(6),
+                                constraints: const BoxConstraints(),
+                              ),
                             ),
                           ],
                         ),
-                      ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            buildSmallIndicatorButton(
+                              label: getLightIcon(),
+                              color: Colors.amber,
+                              onTap: showLightSelector,
+                            ),
+                            const SizedBox(width: 8),
+                            buildSmallIndicatorButton(
+                              label: getWindDirectionIcon(),
+                              color: Colors.blue,
+                              onTap: showWindDirectionSelector,
+                            ),
+                            const SizedBox(width: 8),
+                            buildSmallIndicatorButton(
+                              label: getClimateIcon(),
+                              color: Colors.green,
+                              onTap: showClimateSelector,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
 
                     const SizedBox(height: 10),
                     Row(

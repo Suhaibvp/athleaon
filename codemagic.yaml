@@ -3,12 +3,11 @@ workflows:
     name: iOS TestFlight Release
     instance_type: mac_mini_m2
     max_build_duration: 120
+    
     integrations:
       app_store_connect: key_for_codemagic
+    
     environment:
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.athleon.shotmetrix
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -17,23 +16,6 @@ workflows:
         APP_STORE_APP_ID: 6755712389
     
     scripts:
-      - name: Set up keychain
-        script: | 
-          keychain initialize
-          
-      - name: Fetch signing files
-        script: | 
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE --create
-            
-      - name: Add certificates to keychain
-        script: | 
-          keychain add-certificates
-          
-      - name: Set up code signing
-        script: | 
-          xcode-project use-profiles
-          
       - name: Get Flutter packages
         script: | 
           flutter packages pub get
@@ -46,8 +28,7 @@ workflows:
         script: | 
           flutter build ipa --release \
             --build-name=1.0.0 \
-            --build-number=$(($(app-store-connect get-latest-testflight-build-number "$APP_STORE_APP_ID") + 1)) \
-            --export-options-plist=/Users/builder/export_options.plist
+            --export-method app-store
     
     artifacts:
       - build/ios/ipa/*.ipa
@@ -57,7 +38,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - suhaibvp9633@gmail.com
+          - suhaibvp9895@gmail.com
         notify:
           success: true
           failure: true
@@ -65,6 +46,4 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
-        beta_groups:
-          - Beta Testers
         submit_to_app_store: false

@@ -1,7 +1,7 @@
 name: ShotMetrix
 description: Sports shooting diary app
 publish_to: 'none'
-version: 2.0.1+4
+version: 2.0.1+5
 # The following defines the version and build number for your application.
 # A version number is three numbers separated by dots, like 1.2.43
 # followed by an optional build number separated by a +.
@@ -58,6 +58,8 @@ dependencies:
   shared_preferences: ^2.2.2
   # sign_in_with_apple: ^5.0.0
   # crypto: ^3.0.3  # For generating nonce
+  opencv_dart: ^1.0.4
+  crop_your_image: ^1.0.2
 
 dev_dependencies:
   flutter_test:
